@@ -19,7 +19,7 @@ export interface ZoomSession {
 /**
  * Take a screenshot and POST it to the backend.
  */
-async function screenshot(page: Page, name: string, sessionId: string, backendUrl: string) {
+export async function screenshot(page: Page, name: string, sessionId: string, backendUrl: string) {
   try {
     const buffer = await page.screenshot({ fullPage: true, encoding: "binary" });
     const url = `${backendUrl}/api/sessions/${sessionId}/screenshots`;
@@ -33,28 +33,34 @@ async function screenshot(page: Page, name: string, sessionId: string, backendUr
     const parsed = new URL(url);
     const client = parsed.protocol === "https:" ? https : http;
 
-    await new Promise<void>((resolve, reject) => {
-      const req = client.request(
-        url,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Content-Length": Buffer.byteLength(body),
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        const req = client.request(
+          url,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Content-Length": Buffer.byteLength(body),
+            },
           },
-        },
-        (res) => {
-          res.resume();
+          (res) => {
+            res.resume();
+            res.on("end", resolve);
+          }
+        );
+        req.on("error", (e) => {
+          console.error(`[screenshot] Failed to upload ${name}:`, e.message);
           resolve();
-        }
-      );
-      req.on("error", (e) => {
-        console.error(`[screenshot] Failed to upload ${name}:`, e.message);
-        resolve(); // Don't fail the join flow for screenshot errors
-      });
-      req.write(body);
-      req.end();
-    });
+        });
+        req.write(body);
+        req.end();
+      }),
+      new Promise<void>((resolve) => setTimeout(() => {
+        console.log(`[screenshot] Upload timed out: ${name}`);
+        resolve();
+      }, 10000)),
+    ]);
 
     console.log(`[screenshot] Uploaded: ${name}`);
   } catch (e: any) {
@@ -263,9 +269,10 @@ export async function joinZoomMeeting(
     if (isWaitingRoom) {
       console.log("[zoom] In waiting room — waiting for host to admit...");
       await screenshot(page, "06-waiting-room", sessionId, backendUrl);
-      // Poll until we're out of the waiting room (up to 5 minutes)
+      // Poll until we're out of the waiting room (up to 10 minutes)
       const waitStart = Date.now();
-      const WAIT_TIMEOUT = 5 * 60 * 1000;
+      const WAIT_TIMEOUT = 10 * 60 * 1000;
+      let waitScreenshot = 0;
       while (Date.now() - waitStart < WAIT_TIMEOUT) {
         const stillWaiting = await page.evaluate(() => {
           const text = document.body.innerText.toLowerCase();
@@ -276,12 +283,20 @@ export async function joinZoomMeeting(
           );
         });
         if (!stillWaiting) break;
+        // Take a debug screenshot every 10s while waiting
+        waitScreenshot++;
+        if (waitScreenshot % 5 === 0) {
+          await screenshot(page, `06-waiting-${waitScreenshot}`, sessionId, backendUrl);
+        }
         await new Promise((r) => setTimeout(r, 2000));
       }
       console.log("[zoom] Left waiting room");
+    } else {
+      console.log("[zoom] No waiting room detected — proceeding");
     }
 
     await screenshot(page, "07-in-meeting", sessionId, backendUrl);
+    console.log("[zoom] Screenshot 07 taken");
 
     // 8. Handle "Join Audio" dialog — try once, don't block if not found
     console.log("[zoom] Checking for audio join dialog...");
@@ -302,26 +317,34 @@ export async function joinZoomMeeting(
     } else {
       console.log("[zoom] No audio join dialog found — may have auto-joined");
     }
-    await screenshot(page, "08-audio-joined", sessionId, backendUrl);
+    console.log("[zoom] Screenshot 08 done, attempting mute...");
 
     // 9. Disable microphone if it's on (we're a listener, not a speaker)
-    await new Promise((r) => setTimeout(r, 2000));
-    const muted = await page.evaluate(() => {
-      const muteBtn = Array.from(
-        document.querySelectorAll("button, [role='button']")
-      ).find(
-        (el) =>
-          el.getAttribute("aria-label")?.toLowerCase().includes("mute") &&
-          !el.getAttribute("aria-label")?.toLowerCase().includes("unmute")
-      );
-      if (muteBtn) {
-        (muteBtn as HTMLElement).click();
-        return true;
+    try {
+      const muted = await Promise.race([
+        page.evaluate(() => {
+          const muteBtn = Array.from(
+            document.querySelectorAll("button, [role='button']")
+          ).find(
+            (el) =>
+              el.getAttribute("aria-label")?.toLowerCase().includes("mute") &&
+              !el.getAttribute("aria-label")?.toLowerCase().includes("unmute")
+          );
+          if (muteBtn) {
+            (muteBtn as HTMLElement).click();
+            return true;
+          }
+          return false;
+        }),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
+      ]);
+      if (muted) {
+        console.log("[zoom] Muted microphone");
+      } else {
+        console.log("[zoom] No mute button found or timed out");
       }
-      return false;
-    });
-    if (muted) {
-      console.log("[zoom] Muted microphone");
+    } catch (e: any) {
+      console.log(`[zoom] Mute check failed: ${e.message}`);
     }
 
     // 10. Verify we're actually in the meeting

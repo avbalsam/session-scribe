@@ -1,7 +1,7 @@
 import express from "express";
 import http from "http";
 import https from "https";
-import { joinZoomMeeting, waitForMeetingEnd, ZoomSession } from "./zoom-joiner";
+import { joinZoomMeeting, waitForMeetingEnd, screenshot, ZoomSession } from "./zoom-joiner";
 import { startAudioCapture } from "./audio-capture";
 
 const app = express();
@@ -16,6 +16,7 @@ const activeSessions = new Map<
   {
     session: ZoomSession;
     stopCapture: () => Promise<void>;
+    debugInterval?: ReturnType<typeof setInterval>;
   }
 >();
 
@@ -86,12 +87,24 @@ app.post("/start", async (req, res) => {
       return;
     }
 
+    // Start periodic debug screenshots every 10s
+    let debugCount = 0;
+    const debugInterval = setInterval(async () => {
+      debugCount++;
+      try {
+        await screenshot(zoomSession.page, `debug-${String(debugCount).padStart(3, "0")}`, sessionId, backendHttpUrl);
+      } catch (e: any) {
+        console.error(`[bot] Debug screenshot failed: ${e.message}`);
+      }
+    }, 10000);
+
     activeSessions.set(sessionId, {
       session: zoomSession,
       stopCapture: capture.stop,
+      debugInterval,
     });
 
-    console.log(`[bot] Session ${sessionId} fully active — audio streaming`);
+    console.log(`[bot] Session ${sessionId} fully active — audio streaming, debug screenshots every 10s`);
 
     // 3. Monitor for meeting end
     const endReason = await waitForMeetingEnd(zoomSession.page);
@@ -145,6 +158,10 @@ async function cleanupSession(sessionId: string) {
   if (!entry) return;
 
   console.log(`[bot] Cleaning up session ${sessionId}`);
+
+  if (entry.debugInterval) {
+    clearInterval(entry.debugInterval);
+  }
 
   try {
     await entry.stopCapture();
