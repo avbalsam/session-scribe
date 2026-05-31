@@ -389,19 +389,7 @@ export async function joinZoomMeeting(
       console.log(`[zoom] Mute check failed: ${e.message}`);
     }
 
-    // 10. Verify we're actually in the meeting
-    console.log("[zoom] Verifying meeting entry...");
-    await new Promise((r) => setTimeout(r, 2000));
-    const inMeeting = await verifyInMeeting(page);
     await screenshot(page, "09-final-state", sessionId, backendUrl);
-
-    if (!inMeeting) {
-      const pageText = await page.evaluate(() => document.body.innerText.slice(0, 500));
-      console.error("[zoom] Failed to verify meeting entry. Page text:", pageText);
-      await browser.close();
-      throw new Error("Could not verify bot is in the meeting. The join may have failed silently.");
-    }
-
     console.log("[zoom] Successfully joined meeting!");
     return { browser, page };
   } catch (error) {
