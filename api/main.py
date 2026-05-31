@@ -3,7 +3,7 @@ import os
 import httpx
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 
 from api.sessions import store
 from api.audio_handler import AudioHandler
@@ -101,6 +101,16 @@ async def stop_session(session_id: str):
 
     store.update_status(session_id, "stopped")
     return store.get(session_id).to_dict()
+
+
+@app.get("/api/sessions/{session_id}/audio")
+async def get_session_audio(session_id: str):
+    session = store.get(session_id)
+    if not session:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    if not session.audio_file_path or not os.path.exists(session.audio_file_path):
+        return JSONResponse({"error": "Audio not available"}, status_code=404)
+    return FileResponse(session.audio_file_path, media_type="audio/wav")
 
 
 # --- WebSocket Endpoints ---

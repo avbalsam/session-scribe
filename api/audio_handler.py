@@ -1,4 +1,6 @@
 import asyncio
+import json
+import math
 import os
 import struct
 import wave
@@ -78,20 +80,23 @@ class AudioHandler:
                     # Write to WAV file
                     wav_file.writeframes(audio_bytes)
 
+                    # Compute audio level (RMS) and broadcast to frontend
+                    level = self._compute_rms(audio_bytes)
+                    duration_s = total_bytes / (SAMPLE_RATE * SAMPLE_WIDTH)
+                    await self._broadcast_level(session_id, level, duration_s)
+
                     # Pass to transcriber
                     segment = await self.transcriber.transcribe_chunk(audio_bytes)
                     if segment:
                         session.transcript.append(segment)
-                        # Broadcast to frontend clients
                         await self._broadcast_segment(session_id, segment)
 
                     # Log progress periodically
                     if chunk_count % 100 == 0:
                         mb = total_bytes / 1024 / 1024
-                        duration = total_bytes / (SAMPLE_RATE * SAMPLE_WIDTH)
                         print(
                             f"[audio] Session {session_id}: {chunk_count} chunks, "
-                            f"{mb:.2f} MB, ~{duration:.1f}s of audio"
+                            f"{mb:.2f} MB, ~{duration_s:.1f}s of audio"
                         )
 
         except WebSocketDisconnect:
@@ -144,26 +149,48 @@ class AudioHandler:
         finally:
             self.transcript_clients.get(session_id, set()).discard(websocket)
 
+    def _compute_rms(self, audio_bytes: bytes) -> float:
+        """Compute RMS level from Int16 PCM audio, normalized to 0.0-1.0."""
+        if len(audio_bytes) < 2:
+            return 0.0
+        num_samples = len(audio_bytes) // 2
+        samples = struct.unpack(f"<{num_samples}h", audio_bytes[:num_samples * 2])
+        sum_sq = sum(s * s for s in samples)
+        rms = math.sqrt(sum_sq / num_samples) / 32768.0
+        return min(rms, 1.0)
+
+    async def _broadcast_level(
+        self, session_id: str, level: float, duration: float
+    ):
+        """Send audio level to all connected frontend clients."""
+        await self._broadcast(session_id, {
+            "type": "level",
+            "level": round(level, 4),
+            "duration": round(duration, 1),
+        })
+
     async def _broadcast_segment(
         self, session_id: str, segment: TranscriptSegment
     ):
         """Send a transcript segment to all connected frontend clients."""
+        await self._broadcast(session_id, {
+            "type": "transcript",
+            "text": segment.text,
+            "speaker": segment.speaker,
+            "startTime": segment.start_time,
+            "endTime": segment.end_time,
+        })
+
+    async def _broadcast(self, session_id: str, message: dict):
+        """Send a JSON message to all connected frontend clients."""
         clients = self.transcript_clients.get(session_id, set())
         disconnected = set()
 
         for ws in clients:
             try:
-                await ws.send_json(
-                    {
-                        "text": segment.text,
-                        "speaker": segment.speaker,
-                        "startTime": segment.start_time,
-                        "endTime": segment.end_time,
-                    }
-                )
+                await ws.send_json(message)
             except Exception:
                 disconnected.add(ws)
 
-        # Clean up disconnected clients
         for ws in disconnected:
             clients.discard(ws)

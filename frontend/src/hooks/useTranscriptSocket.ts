@@ -8,14 +8,26 @@ export interface TranscriptSegment {
   endTime: number | null;
 }
 
-export function useTranscriptSocket(sessionId: string | null) {
+export interface SessionSocket {
+  segments: TranscriptSegment[];
+  level: number;
+  duration: number;
+  connected: boolean;
+  clear: () => void;
+}
+
+export function useSessionSocket(sessionId: string | null): SessionSocket {
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
+  const [level, setLevel] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     if (!sessionId) {
       setSegments([]);
+      setLevel(0);
+      setDuration(0);
       setConnected(false);
       return;
     }
@@ -34,10 +46,20 @@ export function useTranscriptSocket(sessionId: string | null) {
 
     ws.onmessage = (event) => {
       try {
-        const segment: TranscriptSegment = JSON.parse(event.data);
-        setSegments((prev) => [...prev, segment]);
+        const msg = JSON.parse(event.data);
+        if (msg.type === "level") {
+          setLevel(msg.level);
+          setDuration(msg.duration);
+        } else if (msg.type === "transcript") {
+          setSegments((prev) => [...prev, {
+            text: msg.text,
+            speaker: msg.speaker,
+            startTime: msg.startTime,
+            endTime: msg.endTime,
+          }]);
+        }
       } catch (e) {
-        console.error("[ws] Failed to parse transcript segment:", e);
+        console.error("[ws] Failed to parse message:", e);
       }
     };
 
@@ -55,7 +77,11 @@ export function useTranscriptSocket(sessionId: string | null) {
     };
   }, [sessionId]);
 
-  const clear = useCallback(() => setSegments([]), []);
+  const clear = useCallback(() => {
+    setSegments([]);
+    setLevel(0);
+    setDuration(0);
+  }, []);
 
-  return { segments, connected, clear };
+  return { segments, level, duration, connected, clear };
 }
