@@ -284,20 +284,25 @@ export async function joinZoomMeeting(
     await screenshot(page, "07-in-meeting", sessionId, backendUrl);
 
     // 8. Handle "Join Audio" dialog — click "Join Audio by Computer"
+    //    Try multiple button texts with short timeouts. The dialog may not appear at all.
     console.log("[zoom] Looking for audio join dialog...");
-    const audioJoined = await clickButtonByText(
-      page,
+    const audioTexts = [
       "join audio by computer",
-      10000
-    );
-    if (!audioJoined) {
-      // Try alternate text
-      const altAudioJoined = await clickButtonByText(page, "join with computer audio", 5000);
-      if (!altAudioJoined) {
-        console.log("[zoom] No audio join dialog found — may have auto-joined");
+      "join with computer audio",
+      "computer audio",
+      "join audio",
+    ];
+    let audioJoined = false;
+    for (const text of audioTexts) {
+      audioJoined = await clickButtonByText(page, text, 3000);
+      if (audioJoined) {
+        console.log(`[zoom] Clicked audio button: "${text}"`);
+        break;
       }
     }
-    console.log("[zoom] Audio joined");
+    if (!audioJoined) {
+      console.log("[zoom] No audio join dialog found — may have auto-joined");
+    }
     await screenshot(page, "08-audio-joined", sessionId, backendUrl);
 
     // 9. Disable microphone if it's on (we're a listener, not a speaker)

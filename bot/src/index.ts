@@ -58,9 +58,10 @@ app.post("/start", async (req, res) => {
     const capture = await startAudioCapture(zoomSession.page, {
       wsUrl: BACKEND_WS_URL,
       sessionId,
-      onChunk: () => {
+      onConnect: () => {
         audioConnected = true;
       },
+      onChunk: () => {},
       onError: (err) => {
         console.error(`[bot] Audio capture error for ${sessionId}:`, err.message);
         if (!audioConnected) {
@@ -72,10 +73,12 @@ app.post("/start", async (req, res) => {
       },
     });
 
-    // Wait briefly to confirm audio WebSocket connects
-    await new Promise((r) => setTimeout(r, 3000));
+    // Wait for audio WebSocket to connect (up to 10s)
+    for (let i = 0; i < 20 && !audioConnected; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
     if (!audioConnected) {
-      console.error(`[bot] Audio WebSocket did not connect for ${sessionId}`);
+      console.error(`[bot] Audio WebSocket did not connect for ${sessionId} after 10s`);
       reportStatus(backendHttpUrl, sessionId, "error", "Audio WebSocket failed to connect to backend");
       await capture.stop();
       await zoomSession.browser.close();

@@ -129,6 +129,7 @@ const AUDIO_CAPTURE_SCRIPT = `
 export interface AudioCaptureOptions {
   wsUrl: string;
   sessionId: string;
+  onConnect?: () => void;
   onChunk?: (size: number) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
@@ -142,7 +143,7 @@ export async function startAudioCapture(
   page: Page,
   options: AudioCaptureOptions
 ): Promise<{ stop: () => Promise<void> }> {
-  const { wsUrl, sessionId, onChunk, onError, onClose } = options;
+  const { wsUrl, sessionId, onConnect, onChunk, onError, onClose } = options;
 
   // Connect WebSocket to backend
   const fullWsUrl = `${wsUrl}/ws/audio/${sessionId}`;
@@ -159,6 +160,7 @@ export async function startAudioCapture(
   ws.on("open", () => {
     connected = true;
     console.log("[audio] WebSocket connected to backend");
+    onConnect?.();
     // Flush buffered chunks
     for (const chunk of buffer) {
       ws.send(Buffer.from(chunk));
