@@ -217,21 +217,7 @@ export async function joinZoomMeeting(
       await screenshot(page, "02-after-browser-join", sessionId, backendUrl);
     }
 
-    // 4. Fill in the display name
-    // Zoom uses various selectors for the name input across versions
-    const nameSelectors = [
-      "#inputname",
-      'input[placeholder*="name" i]',
-      'input[placeholder*="Name" i]',
-      'input[type="text"]',
-    ];
-    const nameSelector = await waitForAny(page, nameSelectors, 15000);
-    console.log(`[zoom] Found name input: ${nameSelector}`);
-    await page.click(nameSelector, { clickCount: 3 }); // Select all existing text
-    await page.type(nameSelector, botName, { delay: 50 });
-    await screenshot(page, "03-name-entered", sessionId, backendUrl);
-
-    // 5. Fill in passcode if required
+    // 4. Fill in passcode if required (must happen before name since Zoom shows passcode first)
     const passcodeSelectors = [
       "#inputpasscode",
       'input[placeholder*="passcode" i]',
@@ -240,14 +226,56 @@ export async function joinZoomMeeting(
     ];
     if (passcode) {
       try {
-        const passcodeSelector = await waitForAny(page, passcodeSelectors, 5000);
+        const passcodeSelector = await waitForAny(page, passcodeSelectors, 10000);
         console.log(`[zoom] Found passcode input: ${passcodeSelector}`);
+        await page.click(passcodeSelector, { clickCount: 3 });
         await page.type(passcodeSelector, passcode, { delay: 50 });
-        await screenshot(page, "04-passcode-entered", sessionId, backendUrl);
+        await screenshot(page, "03-passcode-entered", sessionId, backendUrl);
       } catch {
         console.log("[zoom] No passcode field found (may not be required)");
       }
+    } else {
+      // Even without a passcode provided, check if Zoom is asking for one
+      const passcodeVisible = await page.evaluate((selectors: string[]) => {
+        return selectors.some(sel => document.querySelector(sel) !== null);
+      }, passcodeSelectors);
+      if (passcodeVisible) {
+        console.warn("[zoom] WARNING: Zoom is asking for a passcode but none was provided!");
+        await screenshot(page, "03-passcode-required-but-missing", sessionId, backendUrl);
+      }
     }
+
+    // 5. Fill in the display name
+    // Zoom uses various selectors for the name input across versions
+    const nameSelectors = [
+      "#inputname",
+      'input[placeholder*="name" i]',
+      'input[placeholder*="Name" i]',
+    ];
+    // Wait for the name field — use a longer timeout since the page may still be loading
+    let nameSelector: string;
+    try {
+      nameSelector = await waitForAny(page, nameSelectors, 15000);
+    } catch {
+      // Fallback: find a text input that is NOT the passcode field
+      nameSelector = await page.evaluate((passSels: string[]) => {
+        const passEl = passSels.map(s => document.querySelector(s)).find(Boolean);
+        const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
+        const nameInput = inputs.find(el => el !== passEl);
+        if (nameInput) {
+          nameInput.id = nameInput.id || '__zoom_name_input';
+          return `#${nameInput.id}`;
+        }
+        return null;
+      }, passcodeSelectors) as string;
+      if (!nameSelector) {
+        throw new Error("Could not find name input field");
+      }
+    }
+    console.log(`[zoom] Found name input: ${nameSelector}`);
+    await page.click(nameSelector, { clickCount: 3 }); // Select all existing text
+    await page.type(nameSelector, botName, { delay: 50 });
+    await screenshot(page, "04-name-entered", sessionId, backendUrl);
 
     // 6. Click the Join button
     const joinClicked = await clickButtonByText(page, "join", 10000);
