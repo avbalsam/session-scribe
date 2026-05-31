@@ -1,4 +1,3 @@
-import { useEffect, useRef } from "react";
 import { useSessionSocket } from "../hooks/useTranscriptSocket";
 import { API_BASE_URL } from "../config";
 
