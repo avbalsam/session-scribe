@@ -25,17 +25,17 @@ const activeSessions = new Map<
  * Start a bot that joins a Zoom meeting and captures audio.
  */
 app.post("/start", async (req, res) => {
-  const { meetingId, passcode, botName, sessionId } = req.body;
+  const { meetingId, zoomLink, passcode, botName, sessionId } = req.body;
 
-  if (!meetingId || !sessionId) {
-    return res.status(400).json({ error: "meetingId and sessionId are required" });
+  if ((!meetingId && !zoomLink) || !sessionId) {
+    return res.status(400).json({ error: "(meetingId or zoomLink) and sessionId are required" });
   }
 
   if (activeSessions.has(sessionId)) {
     return res.status(409).json({ error: "Session already active" });
   }
 
-  console.log(`[bot] Starting session ${sessionId} for meeting ${meetingId}`);
+  console.log(`[bot] Starting session ${sessionId} for meeting ${meetingId || zoomLink}`);
 
   // Respond immediately — the join process takes time
   res.json({ status: "starting", sessionId });
@@ -47,6 +47,7 @@ app.post("/start", async (req, res) => {
     // 1. Join the meeting
     const zoomSession = await joinZoomMeeting({
       meetingId,
+      zoomLink,
       passcode,
       botName: botName || "Session Scribe Bot",
       sessionId,
