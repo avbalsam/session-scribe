@@ -44,6 +44,8 @@ app.post("/start", async (req, res) => {
       meetingId,
       passcode,
       botName: botName || "Session Scribe Bot",
+      sessionId,
+      backendUrl: BACKEND_WS_URL.replace(/^ws/, "http"),
       headless: process.env.HEADLESS !== "false",
     });
 

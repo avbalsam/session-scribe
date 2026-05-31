@@ -1,13 +1,14 @@
 import puppeteer, { Browser, Page } from "puppeteer";
-import path from "path";
-import fs from "fs";
+import http from "http";
+import https from "https";
 
 export interface ZoomJoinConfig {
   meetingId: string;
   passcode?: string;
   botName: string;
+  sessionId: string;
+  backendUrl: string;
   headless?: boolean;
-  screenshotDir?: string;
 }
 
 export interface ZoomSession {
@@ -15,13 +16,50 @@ export interface ZoomSession {
   page: Page;
 }
 
-const SCREENSHOT_DIR = path.join(__dirname, "..", "screenshots");
+/**
+ * Take a screenshot and POST it to the backend.
+ */
+async function screenshot(page: Page, name: string, sessionId: string, backendUrl: string) {
+  try {
+    const buffer = await page.screenshot({ fullPage: true, encoding: "binary" });
+    const url = `${backendUrl}/api/sessions/${sessionId}/screenshots`;
 
-async function screenshot(page: Page, name: string, dir: string) {
-  fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, `${name}.png`);
-  await page.screenshot({ path: filePath, fullPage: true });
-  console.log(`[screenshot] ${filePath}`);
+    // POST the screenshot as multipart or raw binary
+    const body = JSON.stringify({
+      name,
+      data: (buffer as Buffer).toString("base64"),
+    });
+
+    const parsed = new URL(url);
+    const client = parsed.protocol === "https:" ? https : http;
+
+    await new Promise<void>((resolve, reject) => {
+      const req = client.request(
+        url,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(body),
+          },
+        },
+        (res) => {
+          res.resume();
+          resolve();
+        }
+      );
+      req.on("error", (e) => {
+        console.error(`[screenshot] Failed to upload ${name}:`, e.message);
+        resolve(); // Don't fail the join flow for screenshot errors
+      });
+      req.write(body);
+      req.end();
+    });
+
+    console.log(`[screenshot] Uploaded: ${name}`);
+  } catch (e: any) {
+    console.error(`[screenshot] Error taking ${name}:`, e.message);
+  }
 }
 
 /**
@@ -122,8 +160,9 @@ export async function joinZoomMeeting(
     meetingId,
     passcode,
     botName,
+    sessionId,
+    backendUrl,
     headless = true,
-    screenshotDir = SCREENSHOT_DIR,
   } = config;
 
   const normalizedId = normalizeMeetingId(meetingId);
@@ -144,7 +183,7 @@ export async function joinZoomMeeting(
     const joinUrl = `https://app.zoom.us/wc/join/${normalizedId}`;
     console.log(`[zoom] Navigating to ${joinUrl}`);
     await page.goto(joinUrl, { waitUntil: "networkidle2", timeout: 30000 });
-    await screenshot(page, "01-landing", screenshotDir);
+    await screenshot(page, "01-landing", sessionId, backendUrl);
 
     // 3. Sometimes Zoom shows a "Launch Meeting" page first — look for "Join from Your Browser"
     const joinFromBrowser = await clickButtonByText(
@@ -155,7 +194,7 @@ export async function joinZoomMeeting(
     if (joinFromBrowser) {
       console.log(`[zoom] Clicked "Join from Your Browser"`);
       await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {});
-      await screenshot(page, "02-after-browser-join", screenshotDir);
+      await screenshot(page, "02-after-browser-join", sessionId, backendUrl);
     }
 
     // 4. Fill in the display name
@@ -170,7 +209,7 @@ export async function joinZoomMeeting(
     console.log(`[zoom] Found name input: ${nameSelector}`);
     await page.click(nameSelector, { clickCount: 3 }); // Select all existing text
     await page.type(nameSelector, botName, { delay: 50 });
-    await screenshot(page, "03-name-entered", screenshotDir);
+    await screenshot(page, "03-name-entered", sessionId, backendUrl);
 
     // 5. Fill in passcode if required
     const passcodeSelectors = [
@@ -184,7 +223,7 @@ export async function joinZoomMeeting(
         const passcodeSelector = await waitForAny(page, passcodeSelectors, 5000);
         console.log(`[zoom] Found passcode input: ${passcodeSelector}`);
         await page.type(passcodeSelector, passcode, { delay: 50 });
-        await screenshot(page, "04-passcode-entered", screenshotDir);
+        await screenshot(page, "04-passcode-entered", sessionId, backendUrl);
       } catch {
         console.log("[zoom] No passcode field found (may not be required)");
       }
@@ -204,7 +243,7 @@ export async function joinZoomMeeting(
       await page.click(joinBtnSel);
     }
     console.log("[zoom] Clicked Join button");
-    await screenshot(page, "05-join-clicked", screenshotDir);
+    await screenshot(page, "05-join-clicked", sessionId, backendUrl);
 
     // 7. Wait for either: meeting view OR waiting room
     console.log("[zoom] Waiting for meeting entry or waiting room...");
@@ -223,7 +262,7 @@ export async function joinZoomMeeting(
 
     if (isWaitingRoom) {
       console.log("[zoom] In waiting room — waiting for host to admit...");
-      await screenshot(page, "06-waiting-room", screenshotDir);
+      await screenshot(page, "06-waiting-room", sessionId, backendUrl);
       // Poll until we're out of the waiting room (up to 5 minutes)
       const waitStart = Date.now();
       const WAIT_TIMEOUT = 5 * 60 * 1000;
@@ -242,7 +281,7 @@ export async function joinZoomMeeting(
       console.log("[zoom] Left waiting room");
     }
 
-    await screenshot(page, "07-in-meeting", screenshotDir);
+    await screenshot(page, "07-in-meeting", sessionId, backendUrl);
 
     // 8. Handle "Join Audio" dialog — click "Join Audio by Computer"
     console.log("[zoom] Looking for audio join dialog...");
@@ -259,7 +298,7 @@ export async function joinZoomMeeting(
       }
     }
     console.log("[zoom] Audio joined");
-    await screenshot(page, "08-audio-joined", screenshotDir);
+    await screenshot(page, "08-audio-joined", sessionId, backendUrl);
 
     // 9. Disable microphone if it's on (we're a listener, not a speaker)
     await new Promise((r) => setTimeout(r, 2000));
@@ -281,12 +320,12 @@ export async function joinZoomMeeting(
       console.log("[zoom] Muted microphone");
     }
 
-    await screenshot(page, "09-final-state", screenshotDir);
+    await screenshot(page, "09-final-state", sessionId, backendUrl);
     console.log("[zoom] Successfully joined meeting!");
 
     return { browser, page };
   } catch (error) {
-    await screenshot(page, "error-state", screenshotDir);
+    await screenshot(page, "error-state", sessionId, backendUrl);
     console.error("[zoom] Failed to join meeting:", error);
     await browser.close();
     throw error;

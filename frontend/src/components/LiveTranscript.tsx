@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useSessionSocket } from "../hooks/useTranscriptSocket";
 import { API_BASE_URL } from "../config";
 
@@ -7,10 +8,33 @@ interface Props {
   onStop: () => void;
 }
 
+interface Screenshot {
+  name: string;
+  url: string;
+}
+
 export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const { level, duration, connected } = useSessionSocket(
     status === "recording" ? sessionId : null
   );
+  const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
+
+  // Poll for screenshots
+  useEffect(() => {
+    const fetchScreenshots = async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/api/sessions/${sessionId}/screenshots`
+        );
+        const data = await res.json();
+        setScreenshots(data);
+      } catch {}
+    };
+
+    fetchScreenshots();
+    const interval = setInterval(fetchScreenshots, 3000);
+    return () => clearInterval(interval);
+  }, [sessionId]);
 
   const handleStop = async () => {
     try {
@@ -70,12 +94,32 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
 
         {isStopped && (
           <div className="audio-playback">
-            <p className="playback-label">Recording complete — {formatDuration(duration)}</p>
+            <p className="playback-label">
+              Recording complete — {formatDuration(duration)}
+            </p>
             <audio
               controls
               src={`${API_BASE_URL}/api/sessions/${sessionId}/audio`}
               className="audio-player"
             />
+          </div>
+        )}
+
+        {screenshots.length > 0 && (
+          <div className="screenshots-section">
+            <h3>Bot Screenshots</h3>
+            <div className="screenshots-grid">
+              {screenshots.map((s) => (
+                <div key={s.name} className="screenshot-item">
+                  <img
+                    src={`${API_BASE_URL}${s.url}`}
+                    alt={s.name}
+                    loading="lazy"
+                  />
+                  <span className="screenshot-label">{s.name}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
