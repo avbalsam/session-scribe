@@ -363,17 +363,8 @@ export async function joinZoomMeeting(
       const state = await page.evaluate(() => {
         const text = document.body.innerText.toLowerCase();
 
-        // Check if we're in the meeting (look for meeting UI)
-        const meetingIndicators = [
-          document.querySelector('[aria-label*="mute" i]'),
-          document.querySelector('[aria-label*="leave" i]'),
-          document.querySelector('[aria-label*="video" i]'),
-          document.querySelector('#wc-footer'),
-          document.querySelector('.meeting-app'),
-        ].filter(Boolean);
-        if (meetingIndicators.length >= 2) return "in_meeting";
-
-        // Check for waiting room
+        // Check for waiting room FIRST — this takes priority over meeting indicators
+        // because some meeting UI elements (mute/video buttons) can appear in the waiting room
         if (
           text.includes("waiting room") ||
           text.includes("please wait") ||
@@ -390,12 +381,25 @@ export async function joinZoomMeeting(
           text.includes("unable to join")
         ) return "error";
 
+        // Check if we're in the meeting (look for meeting UI)
+        // Only reach here if NOT in waiting room
+        const meetingIndicators = [
+          document.querySelector('[aria-label*="mute" i]'),
+          document.querySelector('[aria-label*="leave" i]'),
+          document.querySelector('[aria-label*="video" i]'),
+          document.querySelector('#wc-footer'),
+          document.querySelector('.meeting-app'),
+        ].filter(Boolean);
+        if (meetingIndicators.length >= 2) return "in_meeting";
+
         // Still loading or transitioning
         return "loading";
       });
 
       if (state !== lastState) {
-        console.log(`[zoom] State: ${state}`);
+        const elapsed = Math.round((Date.now() - waitStart) / 1000);
+        console.log(`[zoom] State: ${lastState || "initial"} → ${state} (${elapsed}s elapsed)`);
+        await screenshot(page, `06-state-${state}-${elapsed}s`, sessionId, backendUrl);
         lastState = state;
       }
 
