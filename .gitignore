@@ -1,1 +1,24 @@
+# Vercel
 .vercel
+
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Environment
+.env
+
+# Audio & transcript files (contain sensitive session data)
+audio/
+transcripts/
+
+# Bot debug screenshots
+bot/screenshots/
+
+# Build outputs
+bot/dist/
+frontend/dist/
+
+# OS
+.DS_Store

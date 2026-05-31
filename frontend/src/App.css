@@ -1,34 +1,277 @@
 * {
+  box-sizing: border-box;
   margin: 0;
   padding: 0;
-  box-sizing: border-box;
 }
 
 body {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: #0a0a0a;
   color: #ededed;
   min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.container {
-  text-align: center;
-  padding: 2rem;
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
 }
 
-h1 {
-  font-size: 2.5rem;
+.app-header {
+  margin-bottom: 2rem;
+}
+
+.app-header h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+
+.subtitle {
+  color: #888;
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+/* Join Form */
+.join-form {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.join-form h2 {
+  font-size: 1.1rem;
   margin-bottom: 1rem;
 }
 
-.api-response {
-  font-size: 1.2rem;
-  color: #888;
-  padding: 1rem 2rem;
+.form-field {
+  margin-bottom: 1rem;
+}
+
+.form-field label {
+  display: block;
+  font-size: 0.85rem;
+  color: #999;
+  margin-bottom: 0.3rem;
+}
+
+.form-field input {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  background: #0a0a0a;
   border: 1px solid #333;
   border-radius: 8px;
+  color: #ededed;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.form-field input:focus {
+  border-color: #4a9eff;
+}
+
+.join-form button {
+  width: 100%;
+  padding: 0.7rem;
+  background: #4a9eff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.join-form button:hover:not(:disabled) {
+  background: #3a8eef;
+}
+
+.join-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error-message {
+  background: #2d1515;
+  border: 1px solid #5c2020;
+  color: #ff6b6b;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+/* Live Transcript */
+.live-transcript {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.transcript-header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.transcript-header h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.status-indicator::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   display: inline-block;
+}
+
+.status-indicator.connected::before {
+  background: #4caf50;
+  animation: pulse 2s infinite;
+}
+
+.status-indicator.disconnected::before {
+  background: #666;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.stop-btn {
+  padding: 0.4rem 0.8rem;
+  background: #5c2020;
+  color: #ff6b6b;
+  border: 1px solid #5c2020;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.stop-btn:hover {
+  background: #7c2020;
+}
+
+.transcript-body {
+  padding: 1.5rem;
+  min-height: 300px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.transcript-body .placeholder {
+  color: #666;
+  font-style: italic;
+}
+
+.transcript-line {
+  margin-bottom: 0.6rem;
+  line-height: 1.5;
+}
+
+.speaker-label {
+  font-weight: 600;
+  color: #4a9eff;
+  margin-right: 0.4rem;
+}
+
+.transcript-text {
+  color: #ddd;
+}
+
+/* Session List */
+.session-list {
+  margin-top: 1.5rem;
+}
+
+.session-list h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+}
+
+.session-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.session-item {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.session-item:hover {
+  border-color: #444;
+}
+
+.session-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+
+.meeting-id {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.session-status {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.status-recording {
+  background: #1a3a1a;
+  color: #4caf50;
+}
+
+.status-stopped {
+  background: #1a1a2a;
+  color: #888;
+}
+
+.status-error {
+  background: #2d1515;
+  color: #ff6b6b;
+}
+
+.status-starting {
+  background: #2a2a1a;
+  color: #f0c040;
+}
+
+.session-item-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: #666;
 }
