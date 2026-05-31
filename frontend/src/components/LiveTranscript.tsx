@@ -20,12 +20,19 @@ interface TranscriptSegment {
   endTime: number | null;
 }
 
+interface SessionData {
+  transcript: TranscriptSegment[];
+  summary: string | null;
+  status: string;
+}
+
 export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const { level, duration, connected } = useSessionSocket(
     status === "recording" ? sessionId : null
   );
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
   const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
+  const [summary, setSummary] = useState<string | null>(null);
   const [transcribing, setTranscribing] = useState(false);
 
   // Poll for screenshots
@@ -57,10 +64,11 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
     if (!transcribing) return;
     const interval = setInterval(async () => {
       const res = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`);
-      const data = await res.json();
+      const data: SessionData = await res.json();
       if (data.status === "stopped") {
         setTranscribing(false);
         setTranscript(data.transcript || []);
+        setSummary(data.summary || null);
       } else if (data.status === "error") {
         setTranscribing(false);
       }
@@ -71,8 +79,9 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const fetchTranscript = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`);
-      const data = await res.json();
+      const data: SessionData = await res.json();
       setTranscript(data.transcript || []);
+      setSummary(data.summary || null);
       if (data.status === "transcribing") {
         setTranscribing(true);
       }
@@ -181,6 +190,13 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
           <div className="transcribing-indicator">
             <span className="spinner" />
             <span>Transcribing audio with Whisper...</span>
+          </div>
+        )}
+
+        {summary && (
+          <div className="summary-section">
+            <h3>Session Summary</h3>
+            <div className="summary-content">{summary}</div>
           </div>
         )}
 

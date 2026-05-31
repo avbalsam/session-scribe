@@ -261,6 +261,30 @@ body {
   animation: pulse 1.5s infinite;
 }
 
+/* Summary */
+.summary-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #2a2a2a;
+}
+
+.summary-section h3 {
+  font-size: 0.95rem;
+  color: #999;
+  margin-bottom: 0.75rem;
+}
+
+.summary-content {
+  background: #1a1a2a;
+  border: 1px solid #2a2a3a;
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: #ccc;
+  white-space: pre-wrap;
+}
+
 /* Transcript */
 .transcript-section {
   margin-top: 1.5rem;

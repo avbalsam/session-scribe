@@ -24,6 +24,7 @@ class Session:
     ended_at: Optional[datetime] = None
     audio_file_path: Optional[str] = None
     transcript: list[TranscriptSegment] = field(default_factory=list)
+    summary: Optional[str] = None
     error_message: Optional[str] = None
 
     def to_dict(self) -> dict:
@@ -45,6 +46,7 @@ class Session:
                 }
                 for seg in self.transcript
             ],
+            "summary": self.summary,
             "errorMessage": self.error_message,
         }
 

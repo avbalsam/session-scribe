@@ -1,5 +1,6 @@
 import base64
 import os
+from typing import Optional
 
 import httpx
 from fastapi import FastAPI, WebSocket, BackgroundTasks
@@ -180,12 +181,69 @@ async def run_whisper_transcription(session_id: str):
             if seg.get("text", "").strip()
         ]
 
+        print(f"[transcribe] Got {len(session.transcript)} segments, generating summary...")
+
+        # Generate summary using a low-cost model
+        full_text = " ".join(seg.text for seg in session.transcript)
+        if full_text.strip():
+            session.summary = await generate_session_summary(full_text, openai_api_key)
+
         store.update_status(session_id, "stopped")
-        print(f"[transcribe] Done — {len(session.transcript)} segments for session {session_id}")
+        print(f"[transcribe] Done — {len(session.transcript)} segments + summary for session {session_id}")
 
     except Exception as e:
         print(f"[transcribe] Error: {e}")
         store.update_status(session_id, "error", f"Transcription failed: {str(e)}")
+
+
+async def generate_session_summary(transcript_text: str, api_key: str) -> Optional[str]:
+    """Generate a therapy session summary using GPT-4o-mini."""
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a clinical documentation assistant helping a therapist summarize therapy sessions. "
+                                "Given a transcript of a therapy session, provide a concise clinical summary that includes:\n"
+                                "1. **Presenting concerns**: What the client discussed or brought up\n"
+                                "2. **Key themes**: Recurring topics, emotions, or patterns observed\n"
+                                "3. **Interventions used**: Any therapeutic techniques or approaches the therapist employed\n"
+                                "4. **Client progress/insights**: Notable moments of insight, breakthroughs, or resistance\n"
+                                "5. **Follow-up considerations**: Topics to revisit or homework assigned\n\n"
+                                "Keep the summary professional, objective, and suitable for clinical notes. "
+                                "Do not include any identifying information beyond what is in the transcript. "
+                                "Use concise bullet points within each section."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": f"Please summarize the following therapy session transcript:\n\n{transcript_text[:15000]}",
+                        },
+                    ],
+                    "max_tokens": 1000,
+                    "temperature": 0.3,
+                },
+            )
+
+        if response.status_code != 200:
+            print(f"[summary] OpenAI error: {response.text[:200]}")
+            return None
+
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
+
+    except Exception as e:
+        print(f"[summary] Error generating summary: {e}")
+        return None
 
 
 @app.get("/api/sessions/{session_id}/audio")
