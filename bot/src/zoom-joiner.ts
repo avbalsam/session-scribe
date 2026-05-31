@@ -251,48 +251,76 @@ export async function joinZoomMeeting(
     console.log("[zoom] Clicked Join button");
     await screenshot(page, "05-join-clicked", sessionId, backendUrl);
 
-    // 7. Wait for either: meeting view OR waiting room
-    console.log("[zoom] Waiting for meeting entry or waiting room...");
-    // Add a small delay for page transition
-    await new Promise((r) => setTimeout(r, 3000));
+    // 7. Wait for meeting entry — could be instant, or could go through waiting room
+    console.log("[zoom] Waiting for meeting entry...");
 
-    // Check for waiting room indicators
-    const isWaitingRoom = await page.evaluate(() => {
-      const text = document.body.innerText.toLowerCase();
-      return (
-        text.includes("waiting room") ||
-        text.includes("please wait") ||
-        text.includes("the host will let you in")
-      );
-    });
+    const WAIT_TIMEOUT = 10 * 60 * 1000;
+    const waitStart = Date.now();
+    let lastState = "";
+    let waitScreenshot = 0;
 
-    if (isWaitingRoom) {
-      console.log("[zoom] In waiting room — waiting for host to admit...");
-      await screenshot(page, "06-waiting-room", sessionId, backendUrl);
-      // Poll until we're out of the waiting room (up to 10 minutes)
-      const waitStart = Date.now();
-      const WAIT_TIMEOUT = 10 * 60 * 1000;
-      let waitScreenshot = 0;
-      while (Date.now() - waitStart < WAIT_TIMEOUT) {
-        const stillWaiting = await page.evaluate(() => {
-          const text = document.body.innerText.toLowerCase();
-          return (
-            text.includes("waiting room") ||
-            text.includes("please wait") ||
-            text.includes("the host will let you in")
-          );
-        });
-        if (!stillWaiting) break;
-        // Take a debug screenshot every 10s while waiting
-        waitScreenshot++;
-        if (waitScreenshot % 5 === 0) {
-          await screenshot(page, `06-waiting-${waitScreenshot}`, sessionId, backendUrl);
-        }
-        await new Promise((r) => setTimeout(r, 2000));
+    while (Date.now() - waitStart < WAIT_TIMEOUT) {
+      const state = await page.evaluate(() => {
+        const text = document.body.innerText.toLowerCase();
+
+        // Check if we're in the meeting (look for meeting UI)
+        const meetingIndicators = [
+          document.querySelector('[aria-label*="mute" i]'),
+          document.querySelector('[aria-label*="leave" i]'),
+          document.querySelector('[aria-label*="video" i]'),
+          document.querySelector('#wc-footer'),
+          document.querySelector('.meeting-app'),
+        ].filter(Boolean);
+        if (meetingIndicators.length >= 2) return "in_meeting";
+
+        // Check for waiting room
+        if (
+          text.includes("waiting room") ||
+          text.includes("please wait") ||
+          text.includes("the host will let you in") ||
+          text.includes("wait for the host") ||
+          text.includes("meeting host will let you in")
+        ) return "waiting_room";
+
+        // Check for errors
+        if (
+          text.includes("invalid meeting") ||
+          text.includes("meeting not found") ||
+          text.includes("meeting has expired") ||
+          text.includes("unable to join")
+        ) return "error";
+
+        // Still loading or transitioning
+        return "loading";
+      });
+
+      if (state !== lastState) {
+        console.log(`[zoom] State: ${state}`);
+        lastState = state;
       }
-      console.log("[zoom] Left waiting room");
-    } else {
-      console.log("[zoom] No waiting room detected — proceeding");
+
+      if (state === "in_meeting") {
+        console.log("[zoom] Entered the meeting");
+        break;
+      }
+
+      if (state === "error") {
+        const pageText = await page.evaluate(() => document.body.innerText.slice(0, 300));
+        console.error("[zoom] Error detected:", pageText);
+        throw new Error("Zoom reported an error joining the meeting");
+      }
+
+      // Take a debug screenshot every 10s while waiting
+      waitScreenshot++;
+      if (waitScreenshot % 5 === 0) {
+        await screenshot(page, `06-wait-${waitScreenshot}`, sessionId, backendUrl);
+      }
+
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+
+    if (Date.now() - waitStart >= WAIT_TIMEOUT) {
+      throw new Error("Timed out waiting to enter the meeting (10 minutes)");
     }
 
     await screenshot(page, "07-in-meeting", sessionId, backendUrl);
