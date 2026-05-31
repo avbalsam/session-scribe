@@ -18,13 +18,16 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
 COPY tsconfig.json ./
 COPY src/ ./src/
 
 # Build TypeScript
 RUN ./node_modules/.bin/tsc
+
+# Remove devDependencies to reduce image size
+RUN npm prune --omit=dev
 
 EXPOSE 3001
 
