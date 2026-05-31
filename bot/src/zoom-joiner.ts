@@ -33,34 +33,37 @@ export async function screenshot(page: Page, name: string, sessionId: string, ba
     const parsed = new URL(url);
     const client = parsed.protocol === "https:" ? https : http;
 
-    await Promise.race([
-      new Promise<void>((resolve) => {
-        const req = client.request(
-          url,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Content-Length": Buffer.byteLength(body),
-            },
-          },
-          (res) => {
-            res.resume();
-            res.on("end", resolve);
-          }
-        );
-        req.on("error", (e) => {
-          console.error(`[screenshot] Failed to upload ${name}:`, e.message);
-          resolve();
-        });
-        req.write(body);
-        req.end();
-      }),
-      new Promise<void>((resolve) => setTimeout(() => {
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
         console.log(`[screenshot] Upload timed out: ${name}`);
         resolve();
-      }, 10000)),
-    ]);
+      }, 10000);
+
+      const req = client.request(
+        url,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(body),
+          },
+        },
+        (res) => {
+          res.resume();
+          res.on("end", () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        }
+      );
+      req.on("error", (e) => {
+        clearTimeout(timeout);
+        console.error(`[screenshot] Failed to upload ${name}:`, e.message);
+        resolve();
+      });
+      req.write(body);
+      req.end();
+    });
 
     console.log(`[screenshot] Uploaded: ${name}`);
   } catch (e: any) {
