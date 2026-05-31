@@ -1,4 +1,6 @@
 import express from "express";
+import http from "http";
+import https from "https";
 import { joinZoomMeeting, waitForMeetingEnd, ZoomSession } from "./zoom-joiner";
 import { startAudioCapture } from "./audio-capture";
 
@@ -37,6 +39,8 @@ app.post("/start", async (req, res) => {
   // Respond immediately — the join process takes time
   res.json({ status: "starting", sessionId });
 
+  const backendHttpUrl = BACKEND_WS_URL.replace(/^ws/, "http");
+
   // Join + capture in the background
   try {
     // 1. Join the meeting
@@ -45,31 +49,46 @@ app.post("/start", async (req, res) => {
       passcode,
       botName: botName || "Session Scribe Bot",
       sessionId,
-      backendUrl: BACKEND_WS_URL.replace(/^ws/, "http"),
+      backendUrl: backendHttpUrl,
       headless: process.env.HEADLESS !== "false",
     });
 
-    // 2. Start audio capture
+    // 2. Start audio capture with connection verification
+    let audioConnected = false;
     const capture = await startAudioCapture(zoomSession.page, {
       wsUrl: BACKEND_WS_URL,
       sessionId,
-      onChunk: (size) => {
-        // Could emit events here for monitoring
+      onChunk: () => {
+        audioConnected = true;
       },
       onError: (err) => {
         console.error(`[bot] Audio capture error for ${sessionId}:`, err.message);
+        if (!audioConnected) {
+          reportStatus(backendHttpUrl, sessionId, "error", `Audio WebSocket failed: ${err.message}`);
+        }
       },
       onClose: () => {
         console.log(`[bot] Audio WebSocket closed for ${sessionId}`);
       },
     });
 
+    // Wait briefly to confirm audio WebSocket connects
+    await new Promise((r) => setTimeout(r, 3000));
+    if (!audioConnected) {
+      console.error(`[bot] Audio WebSocket did not connect for ${sessionId}`);
+      reportStatus(backendHttpUrl, sessionId, "error", "Audio WebSocket failed to connect to backend");
+      await capture.stop();
+      await zoomSession.browser.close();
+      activeSessions.delete(sessionId);
+      return;
+    }
+
     activeSessions.set(sessionId, {
       session: zoomSession,
       stopCapture: capture.stop,
     });
 
-    console.log(`[bot] Session ${sessionId} fully active`);
+    console.log(`[bot] Session ${sessionId} fully active — audio streaming`);
 
     // 3. Monitor for meeting end
     const endReason = await waitForMeetingEnd(zoomSession.page);
@@ -79,6 +98,7 @@ app.post("/start", async (req, res) => {
     await cleanupSession(sessionId);
   } catch (error: any) {
     console.error(`[bot] Failed to start session ${sessionId}:`, error.message);
+    reportStatus(backendHttpUrl, sessionId, "error", error.message);
     activeSessions.delete(sessionId);
   }
 });
@@ -137,6 +157,29 @@ async function cleanupSession(sessionId: string) {
 
   activeSessions.delete(sessionId);
   console.log(`[bot] Session ${sessionId} cleaned up`);
+}
+
+/**
+ * Report session status back to the backend.
+ */
+function reportStatus(backendUrl: string, sessionId: string, status: string, error?: string) {
+  const url = `${backendUrl}/api/sessions/${sessionId}/status`;
+  const body = JSON.stringify({ status, error });
+  const parsed = new URL(url);
+  const client = parsed.protocol === "https:" ? https : http;
+
+  const req = client.request(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(body),
+    },
+  }, () => {});
+  req.on("error", (e) => {
+    console.error(`[bot] Failed to report status: ${e.message}`);
+  });
+  req.write(body);
+  req.end();
 }
 
 // Graceful shutdown

@@ -85,6 +85,17 @@ async def get_session(session_id: str):
     return session.to_dict()
 
 
+@app.post("/api/sessions/{session_id}/status")
+async def update_session_status(session_id: str, body: dict):
+    session = store.get(session_id)
+    if not session:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    status = body.get("status", "error")
+    error = body.get("error")
+    store.update_status(session_id, status, error)
+    return {"status": "ok"}
+
+
 @app.post("/api/sessions/{session_id}/stop")
 async def stop_session(session_id: str):
     session = store.get(session_id)

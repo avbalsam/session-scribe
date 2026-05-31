@@ -320,9 +320,20 @@ export async function joinZoomMeeting(
       console.log("[zoom] Muted microphone");
     }
 
+    // 10. Verify we're actually in the meeting
+    console.log("[zoom] Verifying meeting entry...");
+    await new Promise((r) => setTimeout(r, 2000));
+    const inMeeting = await verifyInMeeting(page);
     await screenshot(page, "09-final-state", sessionId, backendUrl);
-    console.log("[zoom] Successfully joined meeting!");
 
+    if (!inMeeting) {
+      const pageText = await page.evaluate(() => document.body.innerText.slice(0, 500));
+      console.error("[zoom] Failed to verify meeting entry. Page text:", pageText);
+      await browser.close();
+      throw new Error("Could not verify bot is in the meeting. The join may have failed silently.");
+    }
+
+    console.log("[zoom] Successfully joined meeting!");
     return { browser, page };
   } catch (error) {
     await screenshot(page, "error-state", sessionId, backendUrl);
@@ -330,6 +341,47 @@ export async function joinZoomMeeting(
     await browser.close();
     throw error;
   }
+}
+
+/**
+ * Verify the bot is actually in the meeting by checking for meeting UI elements.
+ */
+async function verifyInMeeting(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const text = document.body.innerText.toLowerCase();
+
+    // Signs we're IN the meeting
+    const meetingIndicators = [
+      // Toolbar buttons
+      () => !!document.querySelector('[aria-label*="mute" i]'),
+      () => !!document.querySelector('[aria-label*="audio" i]'),
+      () => !!document.querySelector('[aria-label*="video" i]'),
+      () => !!document.querySelector('[aria-label*="share" i]'),
+      () => !!document.querySelector('[aria-label*="leave" i]'),
+      // Meeting footer/toolbar
+      () => !!document.querySelector('.meeting-app, .meeting-client, #wc-container-left, #wc-footer'),
+      // Participant-related
+      () => text.includes("participants"),
+    ];
+
+    // Signs we're NOT in the meeting
+    const failureIndicators = [
+      "invalid meeting id",
+      "meeting has expired",
+      "this meeting has been ended",
+      "meeting not found",
+      "unable to join",
+      "meeting is not started",
+      "check your network",
+      "captcha",
+    ];
+
+    const hasFailed = failureIndicators.some((s) => text.includes(s));
+    if (hasFailed) return false;
+
+    const matchCount = meetingIndicators.filter((fn) => fn()).length;
+    return matchCount >= 2;
+  });
 }
 
 /**
