@@ -144,6 +144,17 @@ async function launchBrowser(headless: boolean): Promise<Browser> {
       "--disable-notifications",
       // Allow insecure content (some Zoom resources)
       "--allow-running-insecure-content",
+      // Memory saving flags
+      "--disable-dev-shm-usage",
+      "--disable-extensions",
+      "--disable-background-networking",
+      "--disable-default-apps",
+      "--disable-sync",
+      "--disable-translate",
+      "--single-process",
+      "--no-zygote",
+      // Limit memory
+      "--js-flags=--max-old-space-size=256",
     ],
   });
 }
