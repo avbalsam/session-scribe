@@ -218,27 +218,63 @@ export async function joinZoomMeeting(
     }
 
     // 4. Fill in passcode if required (must happen before name since Zoom shows passcode first)
-    const passcodeSelectors = [
-      "#inputpasscode",
-      'input[placeholder*="passcode" i]',
-      'input[placeholder*="password" i]',
-      'input[type="password"]',
-    ];
     if (passcode) {
-      try {
-        const passcodeSelector = await waitForAny(page, passcodeSelectors, 10000);
-        console.log(`[zoom] Found passcode input: ${passcodeSelector}`);
-        await page.click(passcodeSelector, { clickCount: 3 });
-        await page.type(passcodeSelector, passcode, { delay: 50 });
+      const passcodeInputId = await page.evaluate(() => {
+        // Look for password-type inputs first (most reliable)
+        const passwordInputs = Array.from(document.querySelectorAll('input[type="password"]')) as HTMLInputElement[];
+        for (const el of passwordInputs) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) continue;
+          const style = window.getComputedStyle(el);
+          if (style.display === 'none' || style.visibility === 'hidden') continue;
+          el.id = el.id || '__zoom_passcode_input';
+          return '#' + el.id;
+        }
+        // Check for inputs associated with "passcode" or "password" labels/placeholders
+        const allInputs = Array.from(document.querySelectorAll('input')) as HTMLInputElement[];
+        for (const el of allInputs) {
+          if (el.type === 'hidden') continue;
+          const rect = el.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) continue;
+          const style = window.getComputedStyle(el);
+          if (style.display === 'none' || style.visibility === 'hidden') continue;
+          const placeholder = (el.placeholder || '').toLowerCase();
+          const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+          const id = (el.id || '').toLowerCase();
+          // Check associated label
+          const label = el.labels?.[0]?.textContent?.toLowerCase() || '';
+          // Also check preceding sibling or parent text for "passcode"
+          const parentText = (el.parentElement?.textContent || '').toLowerCase();
+          if (
+            placeholder.includes('passcode') || placeholder.includes('password') ||
+            ariaLabel.includes('passcode') || ariaLabel.includes('password') ||
+            id.includes('passcode') || id.includes('password') ||
+            label.includes('passcode') || label.includes('password') ||
+            (parentText.includes('passcode') && !parentText.includes('name'))
+          ) {
+            el.id = el.id || '__zoom_passcode_input';
+            return '#' + el.id;
+          }
+        }
+        return null;
+      });
+
+      if (passcodeInputId) {
+        console.log(`[zoom] Found passcode input: ${passcodeInputId}`);
+        await page.waitForSelector(passcodeInputId, { visible: true, timeout: 5000 });
+        await page.click(passcodeInputId, { clickCount: 3 });
+        await page.type(passcodeInputId, passcode, { delay: 50 });
         await screenshot(page, "03-passcode-entered", sessionId, backendUrl);
-      } catch {
+      } else {
         console.log("[zoom] No passcode field found (may not be required)");
+        await screenshot(page, "03-no-passcode-field", sessionId, backendUrl);
       }
     } else {
       // Even without a passcode provided, check if Zoom is asking for one
-      const passcodeVisible = await page.evaluate((selectors: string[]) => {
-        return selectors.some(sel => document.querySelector(sel) !== null);
-      }, passcodeSelectors);
+      const passcodeVisible = await page.evaluate(() => {
+        const text = document.body.innerText.toLowerCase();
+        return text.includes('passcode') || text.includes('meeting password');
+      });
       if (passcodeVisible) {
         console.warn("[zoom] WARNING: Zoom is asking for a passcode but none was provided!");
         await screenshot(page, "03-passcode-required-but-missing", sessionId, backendUrl);
