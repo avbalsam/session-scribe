@@ -246,35 +246,57 @@ export async function joinZoomMeeting(
     }
 
     // 5. Fill in the display name
-    // Zoom uses various selectors for the name input across versions
-    const nameSelectors = [
-      "#inputname",
-      'input[placeholder*="name" i]',
-      'input[placeholder*="Name" i]',
-    ];
-    // Wait for the name field — use a longer timeout since the page may still be loading
-    let nameSelector: string;
-    try {
-      nameSelector = await waitForAny(page, nameSelectors, 15000);
-    } catch {
-      // Fallback: find a text input that is NOT the passcode field
-      nameSelector = await page.evaluate((passSels: string[]) => {
-        const passEl = passSels.map(s => document.querySelector(s)).find(Boolean);
-        const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
-        const nameInput = inputs.find(el => el !== passEl);
-        if (nameInput) {
-          nameInput.id = nameInput.id || '__zoom_name_input';
-          return `#${nameInput.id}`;
+    // Use page.evaluate to find the actual visible name input, avoiding hidden elements like #cdn_path
+    const nameInputId = await page.evaluate(() => {
+      // Try specific known selectors first
+      const candidates = [
+        document.querySelector('#inputname') as HTMLInputElement | null,
+        ...Array.from(document.querySelectorAll('input[type="text"]')) as HTMLInputElement[],
+        ...Array.from(document.querySelectorAll('input:not([type])')) as HTMLInputElement[],
+      ];
+      for (const el of candidates) {
+        if (!el) continue;
+        // Skip hidden, non-visible, or non-form elements
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') continue;
+        if (el.type === 'hidden') continue;
+        // Skip password fields (that's the passcode input)
+        if (el.type === 'password') continue;
+        // Check if placeholder/label hints at "name"
+        const placeholder = (el.placeholder || '').toLowerCase();
+        const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+        const id = (el.id || '').toLowerCase();
+        if (placeholder.includes('name') || ariaLabel.includes('name') || id.includes('name')) {
+          el.id = el.id || '__zoom_name_input';
+          return '#' + el.id;
         }
-        return null;
-      }, passcodeSelectors) as string;
-      if (!nameSelector) {
-        throw new Error("Could not find name input field");
       }
+      // Last resort: return the first visible text input that isn't a password field
+      for (const el of candidates) {
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') continue;
+        if (el.type === 'hidden' || el.type === 'password') continue;
+        el.id = el.id || '__zoom_name_input';
+        return '#' + el.id;
+      }
+      return null;
+    });
+
+    if (!nameInputId) {
+      await screenshot(page, "04-no-name-field", sessionId, backendUrl);
+      throw new Error("Could not find a visible name input field");
     }
-    console.log(`[zoom] Found name input: ${nameSelector}`);
-    await page.click(nameSelector, { clickCount: 3 }); // Select all existing text
-    await page.type(nameSelector, botName, { delay: 50 });
+
+    console.log(`[zoom] Found name input: ${nameInputId}`);
+    // Wait briefly for the element to be ready, then interact
+    await page.waitForSelector(nameInputId, { visible: true, timeout: 5000 });
+    await page.click(nameInputId, { clickCount: 3 }); // Select all existing text
+    await page.type(nameInputId, botName, { delay: 50 });
     await screenshot(page, "04-name-entered", sessionId, backendUrl);
 
     // 6. Click the Join button
