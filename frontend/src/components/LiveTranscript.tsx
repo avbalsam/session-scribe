@@ -13,11 +13,20 @@ interface Screenshot {
   url: string;
 }
 
+interface TranscriptSegment {
+  text: string;
+  speaker: string | null;
+  startTime: number | null;
+  endTime: number | null;
+}
+
 export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const { level, duration, connected } = useSessionSocket(
     status === "recording" ? sessionId : null
   );
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
+  const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
+  const [transcribing, setTranscribing] = useState(false);
 
   // Poll for screenshots
   useEffect(() => {
@@ -36,6 +45,40 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
     return () => clearInterval(interval);
   }, [sessionId]);
 
+  // Fetch transcript when status changes to stopped
+  useEffect(() => {
+    if (status === "stopped" || status === "transcribing") {
+      fetchTranscript();
+    }
+  }, [status]);
+
+  // Poll while transcribing
+  useEffect(() => {
+    if (!transcribing) return;
+    const interval = setInterval(async () => {
+      const res = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`);
+      const data = await res.json();
+      if (data.status === "stopped") {
+        setTranscribing(false);
+        setTranscript(data.transcript || []);
+      } else if (data.status === "error") {
+        setTranscribing(false);
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [transcribing, sessionId]);
+
+  const fetchTranscript = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`);
+      const data = await res.json();
+      setTranscript(data.transcript || []);
+      if (data.status === "transcribing") {
+        setTranscribing(true);
+      }
+    } catch {}
+  };
+
   const handleStop = async () => {
     try {
       await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/stop`, {
@@ -47,7 +90,26 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
     }
   };
 
+  const handleTranscribe = async () => {
+    setTranscribing(true);
+    try {
+      await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/transcribe`, {
+        method: "POST",
+      });
+    } catch (err) {
+      console.error("Failed to start transcription:", err);
+      setTranscribing(false);
+    }
+  };
+
   const formatDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const formatTimestamp = (seconds: number | null) => {
+    if (seconds === null) return "";
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, "0")}`;
@@ -62,9 +124,17 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
         <h2>Session</h2>
         <div className="status-row">
           <span
-            className={`status-indicator ${connected ? "connected" : "disconnected"}`}
+            className={`status-indicator ${
+              connected ? "connected" : transcribing ? "transcribing" : "disconnected"
+            }`}
           >
-            {connected ? "Recording" : isStopped ? "Stopped" : "Connecting..."}
+            {connected
+              ? "Recording"
+              : transcribing
+              ? "Transcribing..."
+              : isStopped
+              ? "Stopped"
+              : "Connecting..."}
           </span>
           {isRecording && (
             <button className="stop-btn" onClick={handleStop}>
@@ -94,14 +164,41 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
 
         {isStopped && (
           <div className="audio-playback">
-            <p className="playback-label">
-              Recording complete — {formatDuration(duration)}
-            </p>
             <audio
               controls
               src={`${API_BASE_URL}/api/sessions/${sessionId}/audio`}
               className="audio-player"
             />
+            {transcript.length === 0 && !transcribing && (
+              <button className="transcribe-btn" onClick={handleTranscribe}>
+                Generate Transcript
+              </button>
+            )}
+          </div>
+        )}
+
+        {transcribing && (
+          <div className="transcribing-indicator">
+            <span className="spinner" />
+            <span>Transcribing audio with Whisper...</span>
+          </div>
+        )}
+
+        {transcript.length > 0 && (
+          <div className="transcript-section">
+            <h3>Transcript</h3>
+            <div className="transcript-lines">
+              {transcript.map((seg, i) => (
+                <div key={i} className="transcript-line">
+                  {seg.startTime !== null && (
+                    <span className="timestamp">
+                      {formatTimestamp(seg.startTime)}
+                    </span>
+                  )}
+                  <span className="transcript-text">{seg.text}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

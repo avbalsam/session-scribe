@@ -2,11 +2,11 @@ import base64
 import os
 
 import httpx
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
 
-from api.sessions import store
+from api.sessions import store, TranscriptSegment
 from api.audio_handler import AudioHandler
 
 SCREENSHOTS_DIR = os.environ.get("SCREENSHOTS_DIR", "./screenshots")
@@ -115,6 +115,77 @@ async def stop_session(session_id: str):
 
     store.update_status(session_id, "stopped")
     return store.get(session_id).to_dict()
+
+
+@app.post("/api/sessions/{session_id}/transcribe")
+async def transcribe_session(session_id: str, background_tasks: BackgroundTasks):
+    session = store.get(session_id)
+    if not session:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    if not session.audio_file_path or not os.path.exists(session.audio_file_path):
+        return JSONResponse({"error": "Audio not available"}, status_code=404)
+    if session.status == "transcribing":
+        return JSONResponse({"error": "Transcription already in progress"}, status_code=409)
+
+    store.update_status(session_id, "transcribing")
+    background_tasks.add_task(run_whisper_transcription, session_id)
+    return {"status": "transcribing"}
+
+
+async def run_whisper_transcription(session_id: str):
+    """Send audio to OpenAI Whisper API and store the transcript."""
+    session = store.get(session_id)
+    if not session:
+        return
+
+    openai_api_key = os.environ.get("OPENAI_API_KEY")
+    if not openai_api_key:
+        store.update_status(session_id, "error", "OPENAI_API_KEY not configured")
+        return
+
+    try:
+        print(f"[transcribe] Starting transcription for session {session_id}")
+
+        # Whisper API has a 25MB file limit. Send the file directly.
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            with open(session.audio_file_path, "rb") as audio_file:
+                response = await client.post(
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {openai_api_key}"},
+                    files={"file": ("audio.wav", audio_file, "audio/wav")},
+                    data={
+                        "model": "whisper-1",
+                        "response_format": "verbose_json",
+                        "timestamp_granularities[]": "segment",
+                    },
+                )
+
+        if response.status_code != 200:
+            error_msg = response.text[:200]
+            print(f"[transcribe] OpenAI error: {error_msg}")
+            store.update_status(session_id, "error", f"Whisper API error: {error_msg}")
+            return
+
+        result = response.json()
+        segments = result.get("segments", [])
+
+        # Convert to our TranscriptSegment format
+        session.transcript = [
+            TranscriptSegment(
+                text=seg.get("text", "").strip(),
+                start_time=seg.get("start"),
+                end_time=seg.get("end"),
+            )
+            for seg in segments
+            if seg.get("text", "").strip()
+        ]
+
+        store.update_status(session_id, "stopped")
+        print(f"[transcribe] Done — {len(session.transcript)} segments for session {session_id}")
+
+    except Exception as e:
+        print(f"[transcribe] Error: {e}")
+        store.update_status(session_id, "error", f"Transcription failed: {str(e)}")
 
 
 @app.get("/api/sessions/{session_id}/audio")
