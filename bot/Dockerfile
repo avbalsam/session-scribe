@@ -24,7 +24,7 @@ COPY tsconfig.json ./
 COPY src/ ./src/
 
 # Build TypeScript
-RUN npx tsc
+RUN ./node_modules/.bin/tsc
 
 EXPOSE 3001
 
