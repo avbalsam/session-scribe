@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useTranscriptSocket, TranscriptSegment } from "../hooks/useTranscriptSocket";
+import { API_BASE_URL } from "../config";
 
 interface Props {
   sessionId: string;
@@ -19,7 +20,7 @@ export function LiveTranscript({ sessionId, onStop }: Props) {
 
   const handleStop = async () => {
     try {
-      await fetch(`/api/sessions/${sessionId}/stop`, { method: "POST" });
+      await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/stop`, { method: "POST" });
       onStop();
     } catch (err) {
       console.error("Failed to stop session:", err);

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { API_BASE_URL } from "../config";
 
 interface Props {
   onSessionStarted: (sessionId: string) => void;
@@ -17,7 +18,7 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
     setError(null);
 
     try {
-      const res = await fetch("/api/sessions", {
+      const res = await fetch(`${API_BASE_URL}/api/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { API_BASE_URL } from "../config";
 
 export interface TranscriptSegment {
   text: string;
@@ -19,8 +20,10 @@ export function useTranscriptSocket(sessionId: string | null) {
       return;
     }
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/transcript/${sessionId}`;
+    const wsBase = API_BASE_URL
+      ? API_BASE_URL.replace(/^http/, "ws")
+      : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
+    const wsUrl = `${wsBase}/ws/transcript/${sessionId}`;
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
