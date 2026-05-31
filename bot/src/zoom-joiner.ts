@@ -283,24 +283,23 @@ export async function joinZoomMeeting(
 
     await screenshot(page, "07-in-meeting", sessionId, backendUrl);
 
-    // 8. Handle "Join Audio" dialog — click "Join Audio by Computer"
-    //    Try multiple button texts with short timeouts. The dialog may not appear at all.
-    console.log("[zoom] Looking for audio join dialog...");
-    const audioTexts = [
-      "join audio by computer",
-      "join with computer audio",
-      "computer audio",
-      "join audio",
-    ];
-    let audioJoined = false;
-    for (const text of audioTexts) {
-      audioJoined = await clickButtonByText(page, text, 3000);
-      if (audioJoined) {
-        console.log(`[zoom] Clicked audio button: "${text}"`);
-        break;
+    // 8. Handle "Join Audio" dialog — try once, don't block if not found
+    console.log("[zoom] Checking for audio join dialog...");
+    const audioJoined = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll("button, [role='button'], a"));
+      const audioTexts = ["join audio by computer", "join with computer audio", "computer audio", "join audio"];
+      for (const btn of buttons) {
+        const text = (btn.textContent || "").toLowerCase().trim();
+        if (audioTexts.some(t => text.includes(t))) {
+          (btn as HTMLElement).click();
+          return text;
+        }
       }
-    }
-    if (!audioJoined) {
+      return null;
+    });
+    if (audioJoined) {
+      console.log(`[zoom] Clicked audio button: "${audioJoined}"`);
+    } else {
       console.log("[zoom] No audio join dialog found — may have auto-joined");
     }
     await screenshot(page, "08-audio-joined", sessionId, backendUrl);
