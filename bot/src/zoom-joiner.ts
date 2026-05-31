@@ -382,15 +382,19 @@ export async function joinZoomMeeting(
         ) return "error";
 
         // Check if we're in the meeting (look for meeting UI)
-        // Only reach here if NOT in waiting room
+        // Only reach here if NOT in waiting room.
+        // The "leave" button is the strongest signal — it only appears in an active meeting,
+        // not in the pre-join preview or waiting room (which show mute/video toggles).
+        const hasLeaveBtn = !!document.querySelector('[aria-label*="leave" i]');
+        if (!hasLeaveBtn) return "loading";
+
         const meetingIndicators = [
           document.querySelector('[aria-label*="mute" i]'),
-          document.querySelector('[aria-label*="leave" i]'),
           document.querySelector('[aria-label*="video" i]'),
           document.querySelector('#wc-footer'),
           document.querySelector('.meeting-app'),
         ].filter(Boolean);
-        if (meetingIndicators.length >= 2) return "in_meeting";
+        if (meetingIndicators.length >= 1) return "in_meeting";
 
         // Still loading or transitioning
         return "loading";
