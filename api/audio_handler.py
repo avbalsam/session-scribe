@@ -7,8 +7,8 @@ from typing import Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from api.sessions import SessionStore, TranscriptSegment
-from api.transcriber import Transcriber, NoOpTranscriber
+from sessions import SessionStore, TranscriptSegment
+from transcriber import Transcriber, NoOpTranscriber
 
 AUDIO_DIR = os.environ.get("AUDIO_SAVE_DIR", "./audio")
 SAMPLE_RATE = 16000

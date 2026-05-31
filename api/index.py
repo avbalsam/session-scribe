@@ -3,9 +3,10 @@ import os
 import httpx
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from api.sessions import store
-from api.audio_handler import AudioHandler
+from sessions import store
+from audio_handler import AudioHandler
 
 app = FastAPI(title="Session Scribe API")
 
@@ -37,7 +38,7 @@ async def create_session(body: dict):
     bot_name = body.get("botName", "Session Scribe Bot")
 
     if not meeting_id:
-        return {"error": "meetingId is required"}, 400
+        return JSONResponse({"error": "meetingId is required"}, status_code=400)
 
     session = store.create(meeting_id, passcode, bot_name)
 
@@ -77,7 +78,7 @@ async def list_sessions():
 async def get_session(session_id: str):
     session = store.get(session_id)
     if not session:
-        return {"error": "Session not found"}, 404
+        return JSONResponse({"error": "Session not found"}, status_code=404)
     return session.to_dict()
 
 
@@ -85,7 +86,7 @@ async def get_session(session_id: str):
 async def stop_session(session_id: str):
     session = store.get(session_id)
     if not session:
-        return {"error": "Session not found"}, 404
+        return JSONResponse({"error": "Session not found"}, status_code=404)
 
     # Tell bot service to stop
     try:
