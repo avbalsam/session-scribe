@@ -1,0 +1,4 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "aptPackages": ["chromium", "fonts-ipafont-gothic", "fonts-wqy-zenhei", "fonts-thai-tlwg", "fonts-khmeros", "fonts-freefont-ttf"]
+}

@@ -3,6 +3,7 @@
 
 # Dependencies
 node_modules/
+bot/package-lock.json
 __pycache__/
 *.pyc
 
