@@ -81,6 +81,7 @@ async function clickButtonByText(
 async function launchBrowser(headless: boolean): Promise<Browser> {
   return puppeteer.launch({
     headless: headless,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: [
       // Auto-grant mic/camera permissions (prevents permission dialogs)
       "--use-fake-ui-for-media-stream",
