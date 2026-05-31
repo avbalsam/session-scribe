@@ -8,7 +8,7 @@ dev:
 	@echo "  make dev-frontend"
 
 dev-backend:
-	cd api && uvicorn index:app --reload --port 8000
+	cd api && uvicorn main:app --reload --port 8000
 
 dev-bot:
 	cd bot && npm run dev
