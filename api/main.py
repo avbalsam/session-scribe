@@ -5,8 +5,8 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from sessions import store
-from audio_handler import AudioHandler
+from api.sessions import store
+from api.audio_handler import AudioHandler
 
 app = FastAPI(title="Session Scribe API")
 

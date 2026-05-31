@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Optional
-from sessions import TranscriptSegment
+from api.sessions import TranscriptSegment
 
 
 class Transcriber(ABC):

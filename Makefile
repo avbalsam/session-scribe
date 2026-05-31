@@ -8,7 +8,7 @@ dev:
 	@echo "  make dev-frontend"
 
 dev-backend:
-	cd api && uvicorn main:app --reload --port 8000
+	uvicorn api.main:app --reload --port 8000
 
 dev-bot:
 	cd bot && npm run dev
@@ -18,6 +18,6 @@ dev-frontend:
 
 # Install all dependencies
 install:
-	pip install -r api/requirements.txt
+	pip install -r requirements.txt
 	cd bot && npm install
 	cd frontend && npm install
