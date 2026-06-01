@@ -221,6 +221,70 @@ async def transcribe_session(session_id: str, background_tasks: BackgroundTasks)
     return {"status": "transcribing"}
 
 
+@app.post("/api/sessions/{session_id}/refine-summary")
+async def refine_session_summary(session_id: str, body: dict):
+    session = store.get(session_id)
+    if not session:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    if not session.summary:
+        return JSONResponse({"error": "No summary to refine"}, status_code=400)
+
+    corrections = body.get("corrections", "").strip()
+    if not corrections:
+        return JSONResponse({"error": "corrections field is required"}, status_code=400)
+
+    openai_api_key = os.environ.get("OPENAI_API_KEY")
+    if not openai_api_key:
+        return JSONResponse({"error": "OPENAI_API_KEY not configured"}, status_code=500)
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {openai_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a clinical documentation assistant. You previously generated a "
+                                "DIR/Floortime session note. The therapist has provided corrections or "
+                                "additional instructions. Apply their feedback to produce an updated session "
+                                "note. Preserve the same structure and style, only modifying what the "
+                                "therapist has asked to change."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Here is the current session note:\n\n{session.summary}\n\n"
+                                f"Please apply the following corrections:\n\n{corrections}"
+                            ),
+                        },
+                    ],
+                    "max_tokens": 3000,
+                    "temperature": 0.3,
+                },
+            )
+
+        if response.status_code != 200:
+            return JSONResponse(
+                {"error": f"OpenAI error: {response.text[:200]}"},
+                status_code=502,
+            )
+
+        result = response.json()
+        session.summary = result["choices"][0]["message"]["content"]
+        return {"summary": session.summary}
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 async def run_whisper_transcription(session_id: str):
     """Send audio to OpenAI Whisper API and store the transcript."""
     session = store.get(session_id)
@@ -275,6 +339,8 @@ async def run_whisper_transcription(session_id: str):
         full_text = " ".join(seg.text for seg in session.transcript)
         if full_text.strip():
             session.summary = await generate_session_summary(full_text, openai_api_key)
+        else:
+            session.summary = "No speech detected in the recording. The audio may be silent, corrupted, or contain no recognizable speech."
 
         store.update_status(session_id, "stopped")
         print(f"[transcribe] Done — {len(session.transcript)} segments + summary for session {session_id}")
