@@ -45,7 +45,7 @@ Commit message style:
 - Create PRs via `gh pr create`
 - Title: short, descriptive (<70 chars)
 - Body: Summary bullets + test plan checklist
-- Railway PR environments auto-deploy — check deployment passes before merging
+- Before merging, use `gh pr checks <number>` to verify all Railway deployments (backend, bot, frontend) are green
 
 ## Testing Changes
 
