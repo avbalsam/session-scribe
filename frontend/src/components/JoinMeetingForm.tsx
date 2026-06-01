@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { API_BASE_URL } from "../config";
 
 interface Props {
@@ -19,9 +19,20 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
 
   // System audio recording state
   const [recording, setRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const sessionIdRef = useRef<string | null>(null);
+
+  // Recording duration timer
+  useEffect(() => {
+    if (!recording) {
+      setRecordingDuration(0);
+      return;
+    }
+    const interval = setInterval(() => setRecordingDuration((d) => d + 1), 1000);
+    return () => clearInterval(interval);
+  }, [recording]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -166,6 +177,10 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
 
         audioStream.getTracks().forEach((t) => t.stop());
         setRecording(false);
+        // Now transition to the session view
+        if (sessionIdRef.current) {
+          onSessionStarted(sessionIdRef.current);
+        }
       };
 
       // Also stop if the user stops sharing
@@ -177,7 +192,6 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
 
       recorder.start(1000); // collect in 1s chunks
       setRecording(true);
-      onSessionStarted(data.id);
     } catch (err: any) {
       if (err.name === "NotAllowedError") {
         setError("Screen sharing was cancelled.");
@@ -203,12 +217,16 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
   })();
 
   if (recording) {
+    const mins = Math.floor(recordingDuration / 60);
+    const secs = recordingDuration % 60;
+    const timeStr = `${mins}:${String(secs).padStart(2, "0")}`;
+
     return (
       <div className="join-form">
         <h2>Recording System Audio</h2>
-        <p className="recording-status">Recording in progress...</p>
+        <p className="recording-status">{timeStr}</p>
         <button type="button" className="stop-recording-btn" onClick={handleStopRecording}>
-          Stop Recording
+          Stop Recording & Upload
         </button>
       </div>
     );
