@@ -5,7 +5,11 @@ interface Props {
   onSessionStarted: (sessionId: string) => void;
 }
 
+type InputMode = "link" | "manual";
+
 export function JoinMeetingForm({ onSessionStarted }: Props) {
+  const [inputMode, setInputMode] = useState<InputMode>("link");
+  const [zoomLink, setZoomLink] = useState("");
   const [meetingId, setMeetingId] = useState("");
   const [passcode, setPasscode] = useState("");
   const [botName, setBotName] = useState("Session Scribe Bot");
@@ -17,15 +21,26 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
     setLoading(true);
     setError(null);
 
+    let body: Record<string, string | undefined>;
+
+    if (inputMode === "link") {
+      body = {
+        zoomLink: zoomLink.trim(),
+        botName: botName.trim(),
+      };
+    } else {
+      body = {
+        meetingId: meetingId.trim(),
+        passcode: passcode.trim() || undefined,
+        botName: botName.trim(),
+      };
+    }
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          meetingId: meetingId.trim(),
-          passcode: passcode.trim() || undefined,
-          botName: botName.trim(),
-        }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -44,32 +59,67 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
     }
   };
 
+  const isValid = inputMode === "link" ? zoomLink.trim().length > 0 : meetingId.trim().length > 0;
+
   return (
     <form onSubmit={handleSubmit} className="join-form">
       <h2>Join a Meeting</h2>
 
-      <div className="form-field">
-        <label htmlFor="meetingId">Meeting ID</label>
-        <input
-          id="meetingId"
-          type="text"
-          placeholder="123 456 7890"
-          value={meetingId}
-          onChange={(e) => setMeetingId(e.target.value)}
-          required
-        />
+      <div className="form-field toggle-field">
+        <button
+          type="button"
+          className={`toggle-btn ${inputMode === "link" ? "active" : ""}`}
+          onClick={() => setInputMode("link")}
+        >
+          Zoom Link
+        </button>
+        <button
+          type="button"
+          className={`toggle-btn ${inputMode === "manual" ? "active" : ""}`}
+          onClick={() => setInputMode("manual")}
+        >
+          Meeting ID
+        </button>
       </div>
 
-      <div className="form-field">
-        <label htmlFor="passcode">Passcode (optional)</label>
-        <input
-          id="passcode"
-          type="text"
-          placeholder="Meeting passcode"
-          value={passcode}
-          onChange={(e) => setPasscode(e.target.value)}
-        />
-      </div>
+      {inputMode === "link" ? (
+        <div className="form-field">
+          <label htmlFor="zoomLink">Zoom Link</label>
+          <input
+            id="zoomLink"
+            type="text"
+            placeholder="https://zoom.us/j/1234567890?pwd=..."
+            value={zoomLink}
+            onChange={(e) => setZoomLink(e.target.value)}
+            required
+          />
+        </div>
+      ) : (
+        <>
+          <div className="form-field">
+            <label htmlFor="meetingId">Meeting ID</label>
+            <input
+              id="meetingId"
+              type="text"
+              placeholder="123 456 7890"
+              value={meetingId}
+              onChange={(e) => setMeetingId(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="passcode">Passcode (optional)</label>
+            <input
+              id="passcode"
+              type="text"
+              placeholder="Meeting passcode"
+              value={passcode}
+              onChange={(e) => setPasscode(e.target.value)}
+            />
+          </div>
+        </>
+      )}
 
       <div className="form-field">
         <label htmlFor="botName">Bot Display Name</label>
@@ -83,7 +133,7 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
 
       {error && <div className="error-message">{error}</div>}
 
-      <button type="submit" disabled={loading || !meetingId.trim()}>
+      <button type="submit" disabled={loading || !isValid}>
         {loading ? "Joining..." : "Join Meeting"}
       </button>
     </form>

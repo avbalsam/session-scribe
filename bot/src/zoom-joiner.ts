@@ -1,9 +1,11 @@
 import puppeteer, { Browser, Page } from "puppeteer";
 import http from "http";
 import https from "https";
+import { AUDIO_CAPTURE_SCRIPT } from "./audio-capture";
 
 export interface ZoomJoinConfig {
-  meetingId: string;
+  meetingId?: string;
+  zoomLink?: string;
   passcode?: string;
   botName: string;
   sessionId: string;
@@ -178,6 +180,7 @@ export async function joinZoomMeeting(
 ): Promise<ZoomSession> {
   const {
     meetingId,
+    zoomLink,
     passcode,
     botName,
     sessionId,
@@ -185,8 +188,28 @@ export async function joinZoomMeeting(
     headless = true,
   } = config;
 
-  const normalizedId = normalizeMeetingId(meetingId);
-  console.log(`[zoom] Joining meeting ${normalizedId} as "${botName}"`);
+  // Build the join URL — either from a zoom link or meeting ID
+  let joinUrl: string;
+  if (zoomLink) {
+    // Convert a Zoom invite link to the web client URL
+    // e.g. https://zoom.us/j/1234567890?pwd=abc → https://app.zoom.us/wc/join/1234567890?pwd=abc
+    // or https://us06web.zoom.us/j/1234567890?pwd=abc → same
+    const parsed = new URL(zoomLink);
+    const pathMatch = parsed.pathname.match(/\/j\/(\d+)/);
+    if (!pathMatch) {
+      throw new Error(`Invalid Zoom link — could not extract meeting ID from: ${zoomLink}`);
+    }
+    const id = pathMatch[1];
+    // Preserve query params (pwd, etc.)
+    joinUrl = `https://app.zoom.us/wc/join/${id}${parsed.search}`;
+    console.log(`[zoom] Joining via link as "${botName}"`);
+  } else if (meetingId) {
+    const normalizedId = normalizeMeetingId(meetingId);
+    joinUrl = `https://app.zoom.us/wc/join/${normalizedId}`;
+    console.log(`[zoom] Joining meeting ${normalizedId} as "${botName}"`);
+  } else {
+    throw new Error("Either meetingId or zoomLink must be provided");
+  }
 
   // 1. Launch browser
   const browser = await launchBrowser(headless);
@@ -199,8 +222,11 @@ export async function joinZoomMeeting(
   );
 
   try {
+    // Inject audio capture script before any navigation so RTCPeerConnection
+    // is monkey-patched before Zoom creates its peer connections.
+    await page.evaluateOnNewDocument(AUDIO_CAPTURE_SCRIPT);
+
     // 2. Navigate directly to the web client join URL
-    const joinUrl = `https://app.zoom.us/wc/join/${normalizedId}`;
     console.log(`[zoom] Navigating to ${joinUrl}`);
     await page.goto(joinUrl, { waitUntil: "networkidle2", timeout: 30000 });
     await screenshot(page, "01-landing", sessionId, backendUrl);
