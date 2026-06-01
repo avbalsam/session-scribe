@@ -46,15 +46,6 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
     } else {
       await handleZoomJoin();
     }
-    // Open Zoom for the user (triggered by click, so popup blockers allow it)
-    if (inputMode === "link") {
-      window.open(zoomLink.trim(), "_blank");
-    } else {
-      const normalizedId = meetingId.trim().replace(/[\s-]/g, "");
-      window.open(`https://zoom.us/j/${normalizedId}`, "_blank");
-    }
-
-    let body: Record<string, string | undefined>;
 
     setLoading(false);
   };
