@@ -68,22 +68,15 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
       window.open(`https://zoom.us/j/${normalizedId}`, "_blank");
     }
 
-    let body: Record<string, string | undefined>;
-    if (inputMode === "link") {
-      body = { zoomLink: zoomLink.trim(), botName: botName.trim() };
-    } else {
-      body = {
-        meetingId: meetingId.trim(),
-        passcode: passcode.trim() || undefined,
-        botName: botName.trim(),
-      };
-    }
+    const payload = inputMode === "link"
+      ? { zoomLink: zoomLink.trim(), botName: botName.trim() }
+      : { meetingId: meetingId.trim(), passcode: passcode.trim() || undefined, botName: botName.trim() };
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data.error) {
