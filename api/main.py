@@ -285,7 +285,7 @@ async def run_whisper_transcription(session_id: str):
 
 
 async def generate_session_summary(transcript_text: str, api_key: str) -> Optional[str]:
-    """Generate a therapy session summary using GPT-4o-mini."""
+    """Generate a DIR/Floortime session note from a therapy session transcript."""
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
@@ -300,24 +300,89 @@ async def generate_session_summary(transcript_text: str, api_key: str) -> Option
                         {
                             "role": "system",
                             "content": (
-                                "You are a clinical documentation assistant helping a therapist summarize therapy sessions. "
-                                "Given a transcript of a therapy session, provide a concise clinical summary that includes:\n"
-                                "1. **Presenting concerns**: What the client discussed or brought up\n"
-                                "2. **Key themes**: Recurring topics, emotions, or patterns observed\n"
-                                "3. **Interventions used**: Any therapeutic techniques or approaches the therapist employed\n"
-                                "4. **Client progress/insights**: Notable moments of insight, breakthroughs, or resistance\n"
-                                "5. **Follow-up considerations**: Topics to revisit or homework assigned\n\n"
-                                "Keep the summary professional, objective, and suitable for clinical notes. "
-                                "Do not include any identifying information beyond what is in the transcript. "
-                                "Use concise bullet points within each section."
+                                "You are a clinical documentation assistant for a DIR/Floortime therapist (QHP). "
+                                "Given a transcript of a therapy session, generate a detailed session note in the following structure:\n\n"
+                                "1. **Header**: Include Client (use CLIENT as placeholder), DIR Player name (identify from transcript), and QHP: Avital Balsam\n\n"
+                                "2. **Opening summary paragraph**: QHP observed CLIENT's performance in relevant developmental areas "
+                                "(reciprocal communication, shared attention, symbolic thinking, emotional regulation, flexible problem solving, "
+                                "peer interaction) throughout the session activities. Note any areas of improvement.\n\n"
+                                "3. **Activities list**: Brief bullet list of activities that occurred during the session.\n\n"
+                                "4. **Detailed narrative paragraphs**: For each major activity or interaction, write a paragraph describing:\n"
+                                "   - What CLIENT did and how they engaged\n"
+                                "   - Which developmental capacities were demonstrated\n"
+                                "   - How CLIENT remained emotionally connected and socially engaged\n"
+                                "   - Any quotes from CLIENT (use exact words from transcript when available)\n\n"
+                                "5. **Communication paragraph**: Describe CLIENT's verbal communication, including direct quotes from the session.\n\n"
+                                "6. **Skills generalizing**: List skills that are generalizing across multiple settings.\n\n"
+                                "7. **DIR strategies utilized**: List the DIR strategies used during the session (e.g., Following the child's lead, "
+                                "Expanding circles of communication, Co-regulation through playful affect, Supporting symbolic thinking, "
+                                "Declarative language, Reflecting the child's intent, Supporting peer interaction, "
+                                "Encouraging shared problem solving, Supporting flexible thinking during transitions, Modeling complex language).\n\n"
+                                "8. **QHP coaching paragraph**: Describe coaching provided to the DIR Player regarding supporting the client's "
+                                "development, including specific strategies modeled or discussed.\n\n"
+                                "Use professional clinical language. Refer to the child as CLIENT throughout. "
+                                "Focus on developmental capacities, emotional engagement, and social connection. "
+                                "Do not include identifying information beyond what is structurally required.\n\n"
+                                "Here is an example of a completed session note for reference:\n\n"
+                                "---\n"
+                                "Client: CLIENT\n"
+                                "DIR Player: Halka\n"
+                                "QHP: Avital Balsam\n\n"
+                                "QHP observed CLIENT's performance in reciprocal communication, shared attention, symbolic thinking, "
+                                "emotional regulation, flexible problem solving, and peer interaction throughout highly interactive movement "
+                                "activities, imaginative play, cooperative transitions, and collaborative conversations with Halka and peers. "
+                                "CLIENT is showing improvement in flexible thinking as seen by transitioning between multiple activities and "
+                                "environments while remaining emotionally connected and engaged with Halka and peers throughout the session.\n\n"
+                                "Activities during the session included:\n\n"
+                                "Building and discussing pretend models including a dinosaur and camper while organizing backpacks and materials\n\n"
+                                "Participating in indoor and outdoor movement activities including walking safely outside, transitioning between "
+                                "rooms, and discussing gym activities\n\n"
+                                "Engaging in imaginative and problem-solving conversations involving a crawling bug, prize trading, and room availability\n\n"
+                                "CLIENT remained emotionally engaged throughout imaginative conversations involving building a dinosaur and camper "
+                                "model with Halka and peers. CLIENT participated in symbolic conversations about where the camper should go, what "
+                                "the dinosaur was doing, and how different pretend items could work together. CLIENT demonstrated increased shared "
+                                "attention by remaining connected during extended collaborative conversations and responding to ideas introduced by "
+                                "peers and Halka.\n\n"
+                                "CLIENT also participated in cooperative transitions while moving between indoor and outdoor spaces. During these "
+                                "transitions, Halka supported CLIENT in walking safely, staying with the group, and adapting to changes when certain "
+                                "rooms were unavailable for activities. CLIENT demonstrated improved flexibility when plans changed and tolerated "
+                                "redirection while remaining emotionally regulated and socially engaged.\n\n"
+                                "CLIENT used verbal communication to comment on activities, share ideas, ask questions, and engage socially throughout "
+                                "the session. CLIENT stated, \"The dinosaur needs to go in the camper,\" \"The bug is crawling fast,\" and \"Can we "
+                                "play in the gym?\" CLIENT also participated in conversations about backpacks, prizes, rooms, and transitions between "
+                                "activities while remaining emotionally connected and engaged.\n\n"
+                                "CLIENT demonstrated growing emotional regulation skills by remaining engaged during multiple transitions, "
+                                "environmental changes, and unexpected situations throughout the session. CLIENT also demonstrated improved peer "
+                                "interaction skills through cooperative conversations, shared imaginative play, collaborative problem solving, and "
+                                "group movement activities.\n\n"
+                                "The following skills are generalizing across multiple settings:\n\n"
+                                "Flexible thinking\n\n"
+                                "Reciprocal communication\n\n"
+                                "DIR strategies utilized during the session included:\n\n"
+                                "Following the child's lead\n\n"
+                                "Expanding circles of communication\n\n"
+                                "Co-regulation through playful affect\n\n"
+                                "Supporting symbolic thinking and imaginative play\n\n"
+                                "Declarative language\n\n"
+                                "Reflecting the child's intent\n\n"
+                                "Supporting peer interaction\n\n"
+                                "Encouraging shared problem solving\n\n"
+                                "Supporting flexible thinking during transitions\n\n"
+                                "Modeling complex language\n\n"
+                                "QHP provided coaching to Halka regarding supporting emotional regulation and flexibility during highly active "
+                                "transitions and socially demanding group activities. QHP modeled the use of declarative comments, playful affect, "
+                                "and reflective language to support longer circles of communication and deeper emotional engagement. Guidance was "
+                                "also provided on continuing to expand imaginative play themes, collaborative problem-solving opportunities, and "
+                                "peer interactions through movement-based activities and emotionally meaningful shared experiences.\n"
+                                "---"
                             ),
                         },
                         {
                             "role": "user",
-                            "content": f"Please summarize the following therapy session transcript:\n\n{transcript_text[:15000]}",
+                            "content": f"Please generate a DIR/Floortime session note from the following therapy session transcript:\n\n{transcript_text[:15000]}",
                         },
                     ],
-                    "max_tokens": 1000,
+                    "max_tokens": 3000,
                     "temperature": 0.3,
                 },
             )
