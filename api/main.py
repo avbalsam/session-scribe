@@ -39,12 +39,13 @@ def hello():
 async def create_session(body: dict):
     meeting_id = body.get("meetingId")
     passcode = body.get("passcode")
+    zoom_link = body.get("zoomLink")
     bot_name = body.get("botName", "Session Scribe Bot")
 
-    if not meeting_id:
-        return JSONResponse({"error": "meetingId is required"}, status_code=400)
+    if not meeting_id and not zoom_link:
+        return JSONResponse({"error": "meetingId or zoomLink is required"}, status_code=400)
 
-    session = store.create(meeting_id, passcode, bot_name)
+    session = store.create(meeting_id or zoom_link, passcode, bot_name)
 
     # Trigger the bot service to join the meeting
     try:
@@ -53,6 +54,7 @@ async def create_session(body: dict):
                 f"{BOT_SERVICE_URL}/start",
                 json={
                     "meetingId": meeting_id,
+                    "zoomLink": zoom_link,
                     "passcode": passcode,
                     "botName": bot_name,
                     "sessionId": session.id,

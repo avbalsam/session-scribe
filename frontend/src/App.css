@@ -95,6 +95,37 @@ body {
   cursor: not-allowed;
 }
 
+.toggle-field {
+  display: flex;
+  gap: 0;
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 0.5rem 0.8rem;
+  font-size: 0.85rem;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #888;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.toggle-btn:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.toggle-btn:last-child {
+  border-radius: 0 6px 6px 0;
+  border-left: none;
+}
+
+.toggle-btn.active {
+  background: #2a2a2a;
+  color: #fff;
+  border-color: #4a9eff;
+}
+
 .error-message {
   background: #2d1515;
   border: 1px solid #5c2020;
