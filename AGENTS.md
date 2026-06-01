@@ -33,7 +33,7 @@ Workflow:
 2. Stage relevant files (prefer specific files over `git add -A`)
 3. **Ask the user** before committing — show them what's staged and the proposed commit message
 4. Wait for approval, then run the commit (the GPG signing prompt will appear for the user)
-5. Push only when explicitly asked
+5. Push and open PRs without asking — no approval needed for those
 
 Commit message style:
 - Short imperative subject line (e.g. "Fix audio capture by injecting WebRTC patch before navigation")
