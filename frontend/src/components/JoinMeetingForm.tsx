@@ -101,18 +101,25 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
 
   const handleSystemAudioStart = async () => {
     try {
-      // Request system audio capture
+      // Request system audio capture — video track is required by browsers
+      // but we immediately discard it and only keep the audio
       const stream = await navigator.mediaDevices.getDisplayMedia({
         audio: true,
-        video: false,
+        video: true,
       });
+
+      // Stop video track immediately — we only need audio
+      stream.getVideoTracks().forEach((t) => t.stop());
 
       // Check we actually got an audio track
       if (stream.getAudioTracks().length === 0) {
         stream.getTracks().forEach((t) => t.stop());
-        setError("No audio track available. Make sure to share audio.");
+        setError("No audio track available. Make sure to check 'Share audio' in the dialog.");
         return;
       }
+
+      // Create an audio-only stream for the recorder
+      const audioStream = new MediaStream(stream.getAudioTracks());
 
       // Create session on backend
       const res = await fetch(`${API_BASE_URL}/api/sessions`, {
@@ -122,7 +129,7 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
       });
       const data = await res.json();
       if (data.error) {
-        stream.getTracks().forEach((t) => t.stop());
+        audioStream.getTracks().forEach((t) => t.stop());
         setError(data.error);
         return;
       }
@@ -130,7 +137,7 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
       sessionIdRef.current = data.id;
 
       // Start recording
-      const recorder = new MediaRecorder(stream, {
+      const recorder = new MediaRecorder(audioStream, {
         mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
           ? "audio/webm;codecs=opus"
           : "audio/webm",
@@ -157,12 +164,12 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
           console.error("Failed to upload recording:", err);
         }
 
-        stream.getTracks().forEach((t) => t.stop());
+        audioStream.getTracks().forEach((t) => t.stop());
         setRecording(false);
       };
 
       // Also stop if the user stops sharing
-      stream.getAudioTracks()[0].addEventListener("ended", () => {
+      audioStream.getAudioTracks()[0].addEventListener("ended", () => {
         if (recorder.state === "recording") {
           recorder.stop();
         }
