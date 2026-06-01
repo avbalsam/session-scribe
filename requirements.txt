@@ -5,3 +5,4 @@ pydub
 httpx
 aiofiles
 python-dotenv
+python-multipart

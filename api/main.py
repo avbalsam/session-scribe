@@ -1,9 +1,12 @@
+import asyncio
 import base64
 import os
+import subprocess
+import tempfile
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, WebSocket, BackgroundTasks
+from fastapi import FastAPI, WebSocket, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
 
@@ -11,6 +14,7 @@ from api.sessions import store, TranscriptSegment
 from api.audio_handler import AudioHandler
 
 SCREENSHOTS_DIR = os.environ.get("SCREENSHOTS_DIR", "./screenshots")
+AUDIO_SAVE_DIR = os.environ.get("AUDIO_SAVE_DIR", "./audio")
 
 app = FastAPI(title="Session Scribe API")
 
@@ -40,38 +44,120 @@ async def create_session(body: dict):
     meeting_id = body.get("meetingId")
     passcode = body.get("passcode")
     zoom_link = body.get("zoomLink")
+    source = body.get("source")  # "system-audio" for browser recording
     bot_name = body.get("botName", "Session Scribe Bot")
 
-    if not meeting_id and not zoom_link:
-        return JSONResponse({"error": "meetingId or zoomLink is required"}, status_code=400)
+    if not meeting_id and not zoom_link and source != "system-audio":
+        return JSONResponse({"error": "meetingId, zoomLink, or source is required"}, status_code=400)
 
-    session = store.create(meeting_id or zoom_link, passcode, bot_name)
+    session = store.create(meeting_id or zoom_link or source, passcode, bot_name)
 
-    # Trigger the bot service to join the meeting
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{BOT_SERVICE_URL}/start",
-                json={
-                    "meetingId": meeting_id,
-                    "zoomLink": zoom_link,
-                    "passcode": passcode,
-                    "botName": bot_name,
-                    "sessionId": session.id,
-                },
-                timeout=10.0,
-            )
-            if resp.status_code != 200:
-                store.update_status(
-                    session.id, "error", f"Bot service error: {resp.text}"
+    # Trigger the bot service to join the meeting (skip for system-audio sessions)
+    if source != "system-audio":
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{BOT_SERVICE_URL}/start",
+                    json={
+                        "meetingId": meeting_id,
+                        "zoomLink": zoom_link,
+                        "passcode": passcode,
+                        "botName": bot_name,
+                        "sessionId": session.id,
+                    },
+                    timeout=10.0,
                 )
-    except httpx.ConnectError:
-        store.update_status(
-            session.id,
-            "error",
-            "Could not connect to bot service. Is it running?",
-        )
+                if resp.status_code != 200:
+                    store.update_status(
+                        session.id, "error", f"Bot service error: {resp.text}"
+                    )
+        except httpx.ConnectError:
+            store.update_status(
+                session.id,
+                "error",
+                "Could not connect to bot service. Is it running?",
+            )
 
+    return session.to_dict()
+
+
+async def extract_audio_to_wav(input_path: str, output_path: str) -> None:
+    """Extract audio from any media file and convert to WAV (16kHz mono PCM16) using ffmpeg."""
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-y", "-i", input_path,
+        "-vn",  # no video
+        "-acodec", "pcm_s16le",
+        "-ar", "16000",
+        "-ac", "1",
+        output_path,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed: {stderr.decode()[:500]}")
+
+
+@app.post("/api/sessions/upload")
+async def create_session_from_upload(
+    file: UploadFile = File(...),
+    botName: str = Form("Session Scribe"),
+):
+    """Create a session from an uploaded video/audio file."""
+    os.makedirs(AUDIO_SAVE_DIR, exist_ok=True)
+
+    session = store.create("uploaded-file", None, botName)
+
+    # Save uploaded file to a temp location
+    suffix = os.path.splitext(file.filename or "upload")[1] or ".bin"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+
+    # Extract audio to WAV
+    wav_path = os.path.join(AUDIO_SAVE_DIR, f"{session.id}_upload.wav")
+    try:
+        await extract_audio_to_wav(tmp_path, wav_path)
+    except RuntimeError as e:
+        os.unlink(tmp_path)
+        store.update_status(session.id, "error", str(e))
+        return JSONResponse({"error": f"Audio extraction failed: {e}"}, status_code=400)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+    session.audio_file_path = wav_path
+    store.update_status(session.id, "stopped")
+    return session.to_dict()
+
+
+@app.post("/api/sessions/{session_id}/upload-audio")
+async def upload_session_audio(session_id: str, file: UploadFile = File(...)):
+    """Upload a recorded audio blob for an existing session (e.g. system audio recording)."""
+    session = store.get(session_id)
+    if not session:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+
+    os.makedirs(AUDIO_SAVE_DIR, exist_ok=True)
+
+    suffix = os.path.splitext(file.filename or "recording")[1] or ".webm"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+
+    wav_path = os.path.join(AUDIO_SAVE_DIR, f"{session_id}_recording.wav")
+    try:
+        await extract_audio_to_wav(tmp_path, wav_path)
+    except RuntimeError as e:
+        os.unlink(tmp_path)
+        store.update_status(session_id, "error", str(e))
+        return JSONResponse({"error": f"Audio extraction failed: {e}"}, status_code=400)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+    session.audio_file_path = wav_path
+    store.update_status(session_id, "stopped")
     return session.to_dict()
 
 
