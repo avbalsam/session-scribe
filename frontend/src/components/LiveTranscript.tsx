@@ -34,6 +34,8 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
   const [summary, setSummary] = useState<string | null>(null);
   const [transcribing, setTranscribing] = useState(false);
+  const [corrections, setCorrections] = useState("");
+  const [refining, setRefining] = useState(false);
 
   // Poll for screenshots
   useEffect(() => {
@@ -108,6 +110,30 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
     } catch (err) {
       console.error("Failed to start transcription:", err);
       setTranscribing(false);
+    }
+  };
+
+  const handleRefine = async () => {
+    if (!corrections.trim()) return;
+    setRefining(true);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/api/sessions/${sessionId}/refine-summary`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ corrections: corrections.trim() }),
+        }
+      );
+      const data = await res.json();
+      if (data.summary) {
+        setSummary(data.summary);
+        setCorrections("");
+      }
+    } catch (err) {
+      console.error("Failed to refine summary:", err);
+    } finally {
+      setRefining(false);
     }
   };
 
@@ -197,6 +223,22 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
           <div className="summary-section">
             <h3>Session Summary</h3>
             <div className="summary-content">{summary}</div>
+            <div className="refine-section">
+              <textarea
+                className="refine-input"
+                placeholder="Enter corrections or additional instructions..."
+                value={corrections}
+                onChange={(e) => setCorrections(e.target.value)}
+                rows={3}
+              />
+              <button
+                className="refine-btn"
+                onClick={handleRefine}
+                disabled={refining || !corrections.trim()}
+              >
+                {refining ? "Refining..." : "Refine Summary"}
+              </button>
+            </div>
           </div>
         )}
 

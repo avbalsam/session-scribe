@@ -372,6 +372,53 @@ input[type="file"]::file-selector-button:hover {
   padding: 1rem;
   font-size: 0.9rem;
   line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.refine-section {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.refine-input {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  background: #0a0a0a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #ededed;
+  font-size: 0.9rem;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.refine-input:focus {
+  border-color: #4a9eff;
+}
+
+.refine-btn {
+  align-self: flex-end;
+  padding: 0.5rem 1rem;
+  background: #1a3a5c;
+  color: #4a9eff;
+  border: 1px solid #2a4a6c;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.refine-btn:hover:not(:disabled) {
+  background: #2a4a6c;
+}
+
+.refine-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
   color: #ccc;
   white-space: pre-wrap;
 }
