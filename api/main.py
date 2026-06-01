@@ -339,6 +339,8 @@ async def run_whisper_transcription(session_id: str):
         full_text = " ".join(seg.text for seg in session.transcript)
         if full_text.strip():
             session.summary = await generate_session_summary(full_text, openai_api_key)
+        else:
+            session.summary = "No speech detected in the recording. The audio may be silent, corrupted, or contain no recognizable speech."
 
         store.update_status(session_id, "stopped")
         print(f"[transcribe] Done — {len(session.transcript)} segments + summary for session {session_id}")
