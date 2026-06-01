@@ -36,6 +36,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const [transcribing, setTranscribing] = useState(false);
   const [corrections, setCorrections] = useState("");
   const [refining, setRefining] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Poll for screenshots
   useEffect(() => {
@@ -221,7 +222,19 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
 
         {summary && (
           <div className="summary-section">
-            <h3>Session Summary</h3>
+            <div className="summary-header">
+              <h3>Session Summary</h3>
+              <button
+                className="copy-btn"
+                onClick={() => {
+                  navigator.clipboard.writeText(summary);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+              >
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
             <div className="summary-content">{summary}</div>
             <div className="refine-section">
               <textarea
