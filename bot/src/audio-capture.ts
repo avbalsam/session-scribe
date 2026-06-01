@@ -9,7 +9,7 @@ import WebSocket from "ws";
  * establishes WebRTC connections, we intercept the incoming audio tracks
  * and route them through an AudioContext for capture.
  */
-const AUDIO_CAPTURE_SCRIPT = `
+export const AUDIO_CAPTURE_SCRIPT = `
 (function() {
   // Prevent double-injection
   if (window.__sessionScribeCapturing) return;

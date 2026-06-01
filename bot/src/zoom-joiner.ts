@@ -1,6 +1,7 @@
 import puppeteer, { Browser, Page } from "puppeteer";
 import http from "http";
 import https from "https";
+import { AUDIO_CAPTURE_SCRIPT } from "./audio-capture";
 
 export interface ZoomJoinConfig {
   meetingId?: string;
@@ -221,6 +222,10 @@ export async function joinZoomMeeting(
   );
 
   try {
+    // Inject audio capture script before any navigation so RTCPeerConnection
+    // is monkey-patched before Zoom creates its peer connections.
+    await page.evaluateOnNewDocument(AUDIO_CAPTURE_SCRIPT);
+
     // 2. Navigate directly to the web client join URL
     console.log(`[zoom] Navigating to ${joinUrl}`);
     await page.goto(joinUrl, { waitUntil: "networkidle2", timeout: 30000 });
