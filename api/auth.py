@@ -38,7 +38,7 @@ def create_auth_session(user: User, response: Response) -> str:
         value=token,
         httponly=True,
         secure=True,
-        samesite="lax",
+        samesite="none",
         max_age=SESSION_MAX_AGE,
         path="/",
     )
