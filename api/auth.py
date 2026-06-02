@@ -8,7 +8,7 @@ from fastapi import Request, HTTPException, Response
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_ID = os.environ.get("VITE_GOOGLE_CLIENT_ID", "")
 SESSION_COOKIE_NAME = "session_token"
 SESSION_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
 
