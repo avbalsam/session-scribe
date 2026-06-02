@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { API_BASE_URL } from "../config";
+import { apiFetch } from "../api";
 
 interface SessionSummary {
   id: string;
@@ -25,7 +25,7 @@ export function SessionList({ onSelectSession, refreshTrigger }: Props) {
 
   const fetchSessions = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/sessions`);
+      const res = await apiFetch("/api/sessions");
       const data = await res.json();
       setSessions(data);
     } catch (err) {

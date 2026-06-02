@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { API_BASE_URL } from "../config";
+import { apiFetch } from "../api";
 
 interface Props {
   onSessionStarted: (sessionId: string) => void;
@@ -64,7 +64,7 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
       : { meetingId: meetingId.trim(), passcode: passcode.trim() || undefined, botName: botName.trim() };
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/sessions`, {
+      const res = await apiFetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -88,7 +88,7 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
     formData.append("botName", botName.trim());
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/sessions/upload`, {
+      const res = await apiFetch("/api/sessions/upload", {
         method: "POST",
         body: formData,
       });
@@ -126,7 +126,7 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
       const audioStream = new MediaStream(stream.getAudioTracks());
 
       // Create session on backend
-      const res = await fetch(`${API_BASE_URL}/api/sessions`, {
+      const res = await apiFetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source: "system-audio", botName: botName.trim() }),
@@ -160,8 +160,8 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
         formData.append("file", blob, "recording.webm");
 
         try {
-          await fetch(
-            `${API_BASE_URL}/api/sessions/${sessionIdRef.current}/upload-audio`,
+          await apiFetch(
+            `/api/sessions/${sessionIdRef.current}/upload-audio`,
             { method: "POST", body: formData }
           );
         } catch (err: any) {

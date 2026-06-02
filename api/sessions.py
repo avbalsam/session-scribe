@@ -21,6 +21,7 @@ class Session:
     bot_name: str
     status: str  # "starting" | "recording" | "stopped" | "error"
     created_at: datetime
+    owner_id: Optional[str] = None
     ended_at: Optional[datetime] = None
     audio_file_path: Optional[str] = None
     transcript: list[TranscriptSegment] = field(default_factory=list)
@@ -62,6 +63,7 @@ class SessionStore:
         meeting_id: str,
         passcode: Optional[str] = None,
         bot_name: str = "Session Scribe Bot",
+        owner_id: Optional[str] = None,
     ) -> Session:
         session = Session(
             id=str(uuid.uuid4()),
@@ -70,6 +72,7 @@ class SessionStore:
             bot_name=bot_name,
             status="starting",
             created_at=datetime.now(),
+            owner_id=owner_id,
         )
         self._sessions[session.id] = session
         return session
@@ -81,6 +84,19 @@ class SessionStore:
         return sorted(
             self._sessions.values(), key=lambda s: s.created_at, reverse=True
         )
+
+    def list_by_owner(self, owner_id: str) -> list[Session]:
+        return sorted(
+            [s for s in self._sessions.values() if s.owner_id == owner_id],
+            key=lambda s: s.created_at,
+            reverse=True,
+        )
+
+    def get_owned(self, session_id: str, owner_id: str) -> Optional[Session]:
+        session = self._sessions.get(session_id)
+        if session and session.owner_id == owner_id:
+            return session
+        return None
 
     def update_status(
         self, session_id: str, status: str, error: Optional[str] = None

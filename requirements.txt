@@ -6,3 +6,4 @@ httpx
 aiofiles
 python-dotenv
 python-multipart
+google-auth
