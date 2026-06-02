@@ -2,11 +2,14 @@ import { useState, useEffect } from "react";
 import { JoinMeetingForm } from "./components/JoinMeetingForm";
 import { LiveTranscript } from "./components/LiveTranscript";
 import { SessionList } from "./components/SessionList";
-import { API_BASE_URL } from "./config";
+import { LoginPage } from "./components/LoginPage";
+import { useAuth } from "./auth/AuthContext";
+import { apiFetch } from "./api";
 
 type View = "home" | "live";
 
 function App() {
+  const { user, loading, logout } = useAuth();
   const [view, setView] = useState<View>("home");
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<string>("starting");
@@ -18,7 +21,7 @@ function App() {
 
     const poll = setInterval(async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/sessions/${activeSessionId}`);
+        const res = await apiFetch(`/api/sessions/${activeSessionId}`);
         const data = await res.json();
         setSessionStatus(data.status);
       } catch {}
@@ -26,6 +29,18 @@ function App() {
 
     return () => clearInterval(poll);
   }, [activeSessionId]);
+
+  if (loading) {
+    return (
+      <div className="app">
+        <p style={{ textAlign: "center", marginTop: "2rem" }}>Loading...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
 
   const handleSessionStarted = (sessionId: string) => {
     setActiveSessionId(sessionId);
@@ -49,7 +64,12 @@ function App() {
         <h1 onClick={handleBack} style={{ cursor: "pointer" }}>
           Session Scribe
         </h1>
-        <p className="subtitle">Zoom meeting transcription</p>
+        <div className="header-right">
+          <span className="user-info">{user.name}</span>
+          <button className="logout-btn" onClick={logout}>
+            Sign out
+          </button>
+        </div>
       </header>
 
       <main className="app-main">

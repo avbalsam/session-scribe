@@ -11,6 +11,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from api.sessions import SessionStore, TranscriptSegment
 from api.transcriber import Transcriber, NoOpTranscriber
+from api.auth import get_user_from_cookie
 
 AUDIO_DIR = os.environ.get("AUDIO_SAVE_DIR", "./audio")
 SAMPLE_RATE = 16000
@@ -119,9 +120,19 @@ class AudioHandler:
         """Frontend clients connect here to receive live transcript updates."""
         await websocket.accept()
 
+        # Authenticate after accepting (cookies available from headers)
+        user = get_user_from_cookie(websocket.cookies)
+        if not user:
+            await websocket.close(code=4001, reason="Not authenticated")
+            return
+
         session = self.store.get(session_id)
         if not session:
             await websocket.close(code=4004, reason="Session not found")
+            return
+
+        if session.owner_id != user.google_id:
+            await websocket.close(code=4003, reason="Forbidden")
             return
 
         # Register this client

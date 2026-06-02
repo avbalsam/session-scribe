@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSessionSocket } from "../hooks/useTranscriptSocket";
 import { API_BASE_URL } from "../config";
+import { apiFetch } from "../api";
 
 interface Props {
   sessionId: string;
@@ -42,8 +43,8 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   useEffect(() => {
     const fetchScreenshots = async () => {
       try {
-        const res = await fetch(
-          `${API_BASE_URL}/api/sessions/${sessionId}/screenshots`
+        const res = await apiFetch(
+          `/api/sessions/${sessionId}/screenshots`
         );
         const data = await res.json();
         setScreenshots(data);
@@ -66,7 +67,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   useEffect(() => {
     if (!transcribing) return;
     const interval = setInterval(async () => {
-      const res = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`);
+      const res = await apiFetch(`/api/sessions/${sessionId}`);
       const data: SessionData = await res.json();
       if (data.status === "stopped") {
         setTranscribing(false);
@@ -81,7 +82,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
 
   const fetchTranscript = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`);
+      const res = await apiFetch(`/api/sessions/${sessionId}`);
       const data: SessionData = await res.json();
       setTranscript(data.transcript || []);
       setSummary(data.summary || null);
@@ -93,7 +94,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
 
   const handleStop = async () => {
     try {
-      await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/stop`, {
+      await apiFetch(`/api/sessions/${sessionId}/stop`, {
         method: "POST",
       });
       onStop();
@@ -105,7 +106,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const handleTranscribe = async () => {
     setTranscribing(true);
     try {
-      await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/transcribe`, {
+      await apiFetch(`/api/sessions/${sessionId}/transcribe`, {
         method: "POST",
       });
     } catch (err) {
@@ -118,8 +119,8 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
     if (!corrections.trim()) return;
     setRefining(true);
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/api/sessions/${sessionId}/refine-summary`,
+      const res = await apiFetch(
+        `/api/sessions/${sessionId}/refine-summary`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
