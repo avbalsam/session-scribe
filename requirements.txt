@@ -7,3 +7,4 @@ aiofiles
 python-dotenv
 python-multipart
 google-auth
+requests
