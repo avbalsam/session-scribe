@@ -2,7 +2,6 @@ import { betterAuth } from "better-auth";
 import Database from "better-sqlite3";
 
 const frontendURL = process.env.FRONTEND_URL || "http://localhost:5173";
-const cookieDomain = process.env.COOKIE_DOMAIN; // e.g. ".up.railway.app" for cross-subdomain
 
 export const auth = betterAuth({
   database: new Database("./auth.db"),
@@ -16,14 +15,4 @@ export const auth = betterAuth({
     },
   },
   trustedOrigins: [frontendURL],
-  advanced: {
-    crossSubDomainCookies: cookieDomain
-      ? { enabled: true, domain: cookieDomain }
-      : { enabled: false },
-    useSecureCookies: true,
-    defaultCookieAttributes: {
-      sameSite: cookieDomain ? "none" : "lax",
-      secure: true,
-    },
-  },
 });

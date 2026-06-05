@@ -9,9 +9,12 @@ from fastapi import FastAPI, WebSocket, BackgroundTasks, UploadFile, File, Form,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 
+from fastapi import Request
+from fastapi.responses import StreamingResponse
+
 from api.sessions import store, TranscriptSegment
 from api.audio_handler import AudioHandler
-from api.auth import User, get_current_user
+from api.auth import User, get_current_user, AUTH_SERVICE_URL
 
 SCREENSHOTS_DIR = os.environ.get("SCREENSHOTS_DIR", "./screenshots")
 AUDIO_SAVE_DIR = os.environ.get("AUDIO_SAVE_DIR", "./audio")
@@ -31,6 +34,42 @@ app.add_middleware(
 audio_handler = AudioHandler(store)
 
 BOT_SERVICE_URL = os.environ.get("BOT_SERVICE_URL", "http://localhost:3001")
+
+
+# --- Auth Proxy (same-origin for frontend cookies) ---
+
+
+@app.api_route("/api/auth/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+async def auth_proxy(request: Request, path: str):
+    """Reverse proxy auth requests to the auth service so cookies stay same-origin."""
+    url = f"{AUTH_SERVICE_URL}/api/auth/{path}"
+    headers = dict(request.headers)
+    headers.pop("host", None)
+
+    body = await request.body()
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.request(
+            method=request.method,
+            url=url,
+            headers=headers,
+            content=body,
+            params=request.query_params,
+            timeout=15.0,
+            follow_redirects=False,
+        )
+
+    # Forward response with headers (including set-cookie)
+    excluded = {"content-encoding", "transfer-encoding", "content-length"}
+    response_headers = {
+        k: v for k, v in resp.headers.multi_items() if k.lower() not in excluded
+    }
+
+    return StreamingResponse(
+        iter([resp.content]),
+        status_code=resp.status_code,
+        headers=response_headers,
+    )
 
 
 # --- REST Endpoints ---
