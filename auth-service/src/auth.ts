@@ -21,5 +21,9 @@ export const auth = betterAuth({
       ? { enabled: true, domain: cookieDomain }
       : { enabled: false },
     useSecureCookies: true,
+    defaultCookieAttributes: {
+      sameSite: cookieDomain ? "none" : "lax",
+      secure: true,
+    },
   },
 });
