@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import { toNodeHandler } from "better-auth/node";
 import { fromNodeHeaders } from "better-auth/node";
-import { getMigrations } from "better-auth/db";
+import { getMigrations } from "better-auth/db/migration";
 import { auth } from "./auth.js";
 
 const app = express();
@@ -47,7 +47,7 @@ app.get("/internal/validate", async (req, res) => {
 
 async function start() {
   // Run database migrations on startup
-  const { runMigrations } = await getMigrations(auth);
+  const { runMigrations } = await getMigrations(auth.options);
   await runMigrations();
   console.log("Database migrations complete");
 
