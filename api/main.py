@@ -39,7 +39,7 @@ BOT_SERVICE_URL = os.environ.get("BOT_SERVICE_URL", "http://localhost:3001")
 # --- Auth Proxy (same-origin for frontend cookies) ---
 
 
-@app.api_route("/api/auth/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+@app.api_route("/api/auth/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def auth_proxy(request: Request, path: str):
     """Reverse proxy auth requests to the auth service so cookies stay same-origin."""
     url = f"{AUTH_SERVICE_URL}/api/auth/{path}"
