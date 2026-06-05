@@ -17,6 +17,8 @@ export function LoginPage() {
             onError={() => console.error("Google login failed")}
             size="large"
             theme="outline"
+            ux_mode="popup"
+            use_fedcm_for_prompt={false}
           />
         </div>
       </div>
