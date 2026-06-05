@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import { toNodeHandler } from "better-auth/node";
 import { fromNodeHeaders } from "better-auth/node";
+import { getMigrations } from "better-auth/db";
 import { auth } from "./auth.js";
 
 const app = express();
@@ -44,6 +45,15 @@ app.get("/internal/validate", async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Auth service running on http://localhost:${port}`);
-});
+async function start() {
+  // Run database migrations on startup
+  const { runMigrations } = await getMigrations(auth);
+  await runMigrations();
+  console.log("Database migrations complete");
+
+  app.listen(port, () => {
+    console.log(`Auth service running on http://localhost:${port}`);
+  });
+}
+
+start();
