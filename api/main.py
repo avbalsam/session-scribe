@@ -1,24 +1,17 @@
 import asyncio
 import base64
 import os
-import subprocess
 import tempfile
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, WebSocket, BackgroundTasks, UploadFile, File, Form, Depends, Request
+from fastapi import FastAPI, WebSocket, BackgroundTasks, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse, Response
+from fastapi.responses import JSONResponse, FileResponse
 
 from api.sessions import store, TranscriptSegment
 from api.audio_handler import AudioHandler
-from api.auth import (
-    User,
-    get_current_user,
-    verify_google_token,
-    create_auth_session,
-    clear_auth_session,
-)
+from api.auth import User, get_current_user
 
 SCREENSHOTS_DIR = os.environ.get("SCREENSHOTS_DIR", "./screenshots")
 AUDIO_SAVE_DIR = os.environ.get("AUDIO_SAVE_DIR", "./audio")
@@ -48,34 +41,8 @@ def hello():
     return {"message": "Session Scribe API is running"}
 
 
-# --- Auth Endpoints ---
-
-
-@app.post("/api/auth/google")
-async def auth_google(body: dict, response: Response):
-    """Exchange a Google credential (ID token) for a session cookie."""
-    credential = body.get("credential")
-    if not credential:
-        return JSONResponse({"error": "credential required"}, status_code=400)
-    try:
-        user = verify_google_token(credential)
-        create_auth_session(user, response)
-        return {"user": {"email": user.email, "name": user.name, "picture": user.picture}}
-    except Exception as e:
-        return JSONResponse({"error": f"Invalid credential: {e}"}, status_code=401)
-
-
-@app.get("/api/auth/me")
-async def auth_me(user: User = Depends(get_current_user)):
-    """Return the current authenticated user."""
-    return {"user": {"email": user.email, "name": user.name, "picture": user.picture}}
-
-
-@app.post("/api/auth/logout")
-async def auth_logout(request: Request, response: Response):
-    """Clear the session cookie."""
-    clear_auth_session(request, response)
-    return {"status": "ok"}
+# Auth is handled by the separate auth-service (Better Auth).
+# FastAPI validates sessions via the get_current_user dependency.
 
 
 @app.post("/api/sessions")
@@ -89,7 +56,7 @@ async def create_session(body: dict, user: User = Depends(get_current_user)):
     if not meeting_id and not zoom_link and source != "system-audio":
         return JSONResponse({"error": "meetingId, zoomLink, or source is required"}, status_code=400)
 
-    session = store.create(meeting_id or zoom_link or source, passcode, bot_name, owner_id=user.google_id)
+    session = store.create(meeting_id or zoom_link or source, passcode, bot_name, owner_id=user.id)
 
     # Trigger the bot service to join the meeting (skip for system-audio sessions)
     if source != "system-audio":
@@ -146,7 +113,7 @@ async def create_session_from_upload(
     """Create a session from an uploaded video/audio file."""
     os.makedirs(AUDIO_SAVE_DIR, exist_ok=True)
 
-    session = store.create("uploaded-file", None, botName, owner_id=user.google_id)
+    session = store.create("uploaded-file", None, botName, owner_id=user.id)
 
     # Save uploaded file to a temp location
     suffix = os.path.splitext(file.filename or "upload")[1] or ".bin"
@@ -174,7 +141,7 @@ async def create_session_from_upload(
 @app.post("/api/sessions/{session_id}/upload-audio")
 async def upload_session_audio(session_id: str, file: UploadFile = File(...), user: User = Depends(get_current_user)):
     """Upload a recorded audio blob for an existing session (e.g. system audio recording)."""
-    session = store.get_owned(session_id, user.google_id)
+    session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
 
@@ -203,12 +170,12 @@ async def upload_session_audio(session_id: str, file: UploadFile = File(...), us
 
 @app.get("/api/sessions")
 async def list_sessions(user: User = Depends(get_current_user)):
-    return [s.to_dict() for s in store.list_by_owner(user.google_id)]
+    return [s.to_dict() for s in store.list_by_owner(user.id)]
 
 
 @app.get("/api/sessions/{session_id}")
 async def get_session(session_id: str, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.google_id)
+    session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     return session.to_dict()
@@ -216,7 +183,7 @@ async def get_session(session_id: str, user: User = Depends(get_current_user)):
 
 @app.post("/api/sessions/{session_id}/status")
 async def update_session_status(session_id: str, body: dict, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.google_id)
+    session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     status = body.get("status", "error")
@@ -227,7 +194,7 @@ async def update_session_status(session_id: str, body: dict, user: User = Depend
 
 @app.post("/api/sessions/{session_id}/stop")
 async def stop_session(session_id: str, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.google_id)
+    session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
 
@@ -248,7 +215,7 @@ async def stop_session(session_id: str, user: User = Depends(get_current_user)):
 
 @app.post("/api/sessions/{session_id}/transcribe")
 async def transcribe_session(session_id: str, background_tasks: BackgroundTasks, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.google_id)
+    session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     if not session.audio_file_path or not os.path.exists(session.audio_file_path):
@@ -263,7 +230,7 @@ async def transcribe_session(session_id: str, background_tasks: BackgroundTasks,
 
 @app.post("/api/sessions/{session_id}/refine-summary")
 async def refine_session_summary(session_id: str, body: dict, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.google_id)
+    session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     if not session.summary:
@@ -507,7 +474,7 @@ async def generate_session_summary(transcript_text: str, api_key: str) -> Option
 
 @app.get("/api/sessions/{session_id}/audio")
 async def get_session_audio(session_id: str, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.google_id)
+    session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     if not session.audio_file_path or not os.path.exists(session.audio_file_path):
@@ -517,7 +484,7 @@ async def get_session_audio(session_id: str, user: User = Depends(get_current_us
 
 @app.post("/api/sessions/{session_id}/screenshots")
 async def upload_screenshot(session_id: str, body: dict, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.google_id)
+    session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
 
@@ -537,7 +504,7 @@ async def upload_screenshot(session_id: str, body: dict, user: User = Depends(ge
 
 @app.get("/api/sessions/{session_id}/screenshots")
 async def list_screenshots(session_id: str, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.google_id)
+    session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     session_dir = os.path.join(SCREENSHOTS_DIR, session_id)
@@ -549,7 +516,7 @@ async def list_screenshots(session_id: str, user: User = Depends(get_current_use
 
 @app.get("/api/sessions/{session_id}/screenshots/{filename}")
 async def get_screenshot(session_id: str, filename: str, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.google_id)
+    session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     file_path = os.path.join(SCREENSHOTS_DIR, session_id, filename)

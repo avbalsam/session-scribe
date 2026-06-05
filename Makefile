@@ -1,14 +1,18 @@
-.PHONY: dev dev-backend dev-bot dev-frontend install
+.PHONY: dev dev-backend dev-auth dev-bot dev-frontend install
 
 # Run all services for development
 dev:
 	@echo "Start each service in a separate terminal:"
 	@echo "  make dev-backend"
+	@echo "  make dev-auth"
 	@echo "  make dev-bot"
 	@echo "  make dev-frontend"
 
 dev-backend:
 	uvicorn api.main:app --reload --port 8000
+
+dev-auth:
+	cd auth-service && npm run dev
 
 dev-bot:
 	cd bot && npm run dev
@@ -19,5 +23,6 @@ dev-frontend:
 # Install all dependencies
 install:
 	pip install -r requirements.txt
+	cd auth-service && npm install
 	cd bot && npm install
 	cd frontend && npm install
