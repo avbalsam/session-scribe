@@ -131,7 +131,7 @@ class AudioHandler:
             await websocket.close(code=4004, reason="Session not found")
             return
 
-        if session.owner_id != user.google_id:
+        if session.owner_id != user.id:
             await websocket.close(code=4003, reason="Forbidden")
             return
 

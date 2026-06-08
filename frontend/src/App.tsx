@@ -9,7 +9,7 @@ import { apiFetch } from "./api";
 type View = "home" | "live";
 
 function App() {
-  const { user, loading, logout } = useAuth();
+  const { user, loading, signOut } = useAuth();
   const [view, setView] = useState<View>("home");
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<string>("starting");
@@ -66,7 +66,7 @@ function App() {
         </h1>
         <div className="header-right">
           <span className="user-info">{user.name}</span>
-          <button className="logout-btn" onClick={logout}>
+          <button className="logout-btn" onClick={signOut}>
             Sign out
           </button>
         </div>
