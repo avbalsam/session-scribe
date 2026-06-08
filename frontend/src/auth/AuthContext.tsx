@@ -30,7 +30,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     : null;
 
   const signIn = async () => {
-    await authClient.signIn.social({ provider: "google" });
+    await authClient.signIn.social({
+      provider: "google",
+      callbackURL: window.location.origin,
+    });
   };
 
   const signOut = async () => {
