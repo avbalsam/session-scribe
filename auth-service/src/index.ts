@@ -1,6 +1,5 @@
 import "dotenv/config";
 import express from "express";
-import cors from "cors";
 import { toNodeHandler } from "better-auth/node";
 import { fromNodeHeaders } from "better-auth/node";
 import { getMigrations } from "better-auth/db/migration";
@@ -8,15 +7,6 @@ import { auth } from "./auth.js";
 
 const app = express();
 const port = parseInt(process.env.AUTH_PORT || "3002", 10);
-const frontendURL = process.env.FRONTEND_URL || "http://localhost:5173";
-
-app.use(
-  cors({
-    origin: frontendURL,
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
-  })
-);
 
 // Better Auth handles all /api/auth/* routes
 // IMPORTANT: do not use express.json() before this handler
