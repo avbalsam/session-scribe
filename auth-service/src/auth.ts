@@ -15,4 +15,10 @@ export const auth = betterAuth({
     },
   },
   trustedOrigins: [frontendURL],
+  advanced: {
+    defaultCookieAttributes: {
+      sameSite: "none",
+      secure: true,
+    },
+  },
 });
