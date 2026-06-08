@@ -17,6 +17,11 @@ export const auth = betterAuth({
     },
   },
   trustedOrigins: [frontendURL],
+  account: {
+    accountLinking: {
+      enabled: true,
+    },
+  },
   advanced: {
     defaultCookieAttributes: {
       sameSite: "none",
