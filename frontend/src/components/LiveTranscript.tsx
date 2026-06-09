@@ -2,6 +2,23 @@ import { useState, useEffect } from "react";
 import { useSessionSocket } from "../hooks/useTranscriptSocket";
 import { API_BASE_URL } from "../config";
 import { apiFetch } from "../api";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { Card, CardContent } from "./ui/card";
+import { Textarea } from "./ui/textarea";
+import {
+  Square,
+  Play,
+  Copy,
+  Check,
+  RefreshCw,
+  Mic,
+  Volume2,
+  VolumeX,
+  Clock,
+  FileText,
+  Image,
+} from "lucide-react";
 
 interface Props {
   sessionId: string;
@@ -39,31 +56,25 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const [refining, setRefining] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Poll for screenshots
   useEffect(() => {
     const fetchScreenshots = async () => {
       try {
-        const res = await apiFetch(
-          `/api/sessions/${sessionId}/screenshots`
-        );
+        const res = await apiFetch(`/api/sessions/${sessionId}/screenshots`);
         const data = await res.json();
         setScreenshots(data);
       } catch {}
     };
-
     fetchScreenshots();
     const interval = setInterval(fetchScreenshots, 3000);
     return () => clearInterval(interval);
   }, [sessionId]);
 
-  // Fetch transcript when status changes to stopped
   useEffect(() => {
     if (status === "stopped" || status === "transcribing") {
       fetchTranscript();
     }
   }, [status]);
 
-  // Poll while transcribing
   useEffect(() => {
     if (!transcribing) return;
     const interval = setInterval(async () => {
@@ -94,9 +105,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
 
   const handleStop = async () => {
     try {
-      await apiFetch(`/api/sessions/${sessionId}/stop`, {
-        method: "POST",
-      });
+      await apiFetch(`/api/sessions/${sessionId}/stop`, { method: "POST" });
       onStop();
     } catch (err) {
       console.error("Failed to stop session:", err);
@@ -106,9 +115,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const handleTranscribe = async () => {
     setTranscribing(true);
     try {
-      await apiFetch(`/api/sessions/${sessionId}/transcribe`, {
-        method: "POST",
-      });
+      await apiFetch(`/api/sessions/${sessionId}/transcribe`, { method: "POST" });
     } catch (err) {
       console.error("Failed to start transcription:", err);
       setTranscribing(false);
@@ -119,14 +126,11 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
     if (!corrections.trim()) return;
     setRefining(true);
     try {
-      const res = await apiFetch(
-        `/api/sessions/${sessionId}/refine-summary`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ corrections: corrections.trim() }),
-        }
-      );
+      const res = await apiFetch(`/api/sessions/${sessionId}/refine-summary`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ corrections: corrections.trim() }),
+      });
       const data = await res.json();
       if (data.summary) {
         setSummary(data.summary);
@@ -156,142 +160,199 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const isStopped = status === "stopped";
 
   return (
-    <div className="live-transcript">
-      <div className="transcript-header">
-        <h2>Session</h2>
-        <div className="status-row">
-          <span
-            className={`status-indicator ${
-              connected ? "connected" : transcribing ? "transcribing" : "disconnected"
-            }`}
-          >
-            {connected
-              ? "Recording"
-              : transcribing
-              ? "Transcribing..."
-              : isStopped
-              ? "Stopped"
-              : "Connecting..."}
-          </span>
-          {isRecording && (
-            <button className="stop-btn" onClick={handleStop}>
-              Stop Recording
-            </button>
+    <div className="max-w-3xl mx-auto p-8 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-semibold text-foreground">Session</h2>
+          {connected ? (
+            <Badge variant="success" className="gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse-slow" />
+              Recording
+            </Badge>
+          ) : transcribing ? (
+            <Badge variant="warning" className="gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse-slow" />
+              Transcribing
+            </Badge>
+          ) : isStopped ? (
+            <Badge variant="secondary">Complete</Badge>
+          ) : (
+            <Badge variant="secondary" className="gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-pulse-slow" />
+              Connecting
+            </Badge>
           )}
         </div>
+        {isRecording && (
+          <Button variant="destructive" size="sm" onClick={handleStop}>
+            <Square className="h-3.5 w-3.5" />
+            Stop Recording
+          </Button>
+        )}
       </div>
 
-      <div className="transcript-body">
-        {isRecording && (
-          <div className="audio-monitor">
-            <div className="level-meter">
-              <div
-                className="level-bar"
-                style={{ width: `${Math.min(level * 500, 100)}%` }}
-              />
+      {/* Recording Monitor */}
+      {isRecording && (
+        <Card>
+          <CardContent className="p-5">
+            <div className="space-y-3">
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-success via-warning to-destructive transition-all duration-150"
+                  style={{ width: `${Math.min(level * 500, 100)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Clock className="h-3.5 w-3.5" />
+                  <span className="font-mono">{formatDuration(duration)}</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  {level > 0.01 ? (
+                    <>
+                      <Volume2 className="h-3.5 w-3.5 text-success" />
+                      <span className="text-success text-xs font-medium">Audio detected</span>
+                    </>
+                  ) : (
+                    <>
+                      <VolumeX className="h-3.5 w-3.5" />
+                      <span className="text-xs">Silence</span>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="audio-stats">
-              <span className="duration">{formatDuration(duration)}</span>
-              <span className="level-value">
-                {level > 0.01 ? "Audio detected" : "Silence"}
-              </span>
-            </div>
-          </div>
-        )}
+          </CardContent>
+        </Card>
+      )}
 
-        {isStopped && (
-          <div className="audio-playback">
+      {/* Audio Playback */}
+      {isStopped && (
+        <Card>
+          <CardContent className="p-5 space-y-4">
             <audio
               controls
               src={`${API_BASE_URL}/api/sessions/${sessionId}/audio`}
-              className="audio-player"
+              className="w-full h-10"
             />
             {transcript.length === 0 && !transcribing && (
-              <button className="transcribe-btn" onClick={handleTranscribe}>
+              <Button onClick={handleTranscribe} className="w-full">
+                <FileText className="h-4 w-4" />
                 Generate Transcript
-              </button>
+              </Button>
             )}
-          </div>
-        )}
+          </CardContent>
+        </Card>
+      )}
 
-        {transcribing && (
-          <div className="transcribing-indicator">
-            <span className="spinner" />
-            <span>Transcribing audio with Whisper...</span>
-          </div>
-        )}
+      {/* Transcribing Indicator */}
+      {transcribing && (
+        <Card>
+          <CardContent className="p-8 flex flex-col items-center gap-3">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <p className="text-sm text-muted-foreground">Transcribing audio with Whisper...</p>
+          </CardContent>
+        </Card>
+      )}
 
-        {summary && (
-          <div className="summary-section">
-            <div className="summary-header">
-              <h3>Session Summary</h3>
-              <button
-                className="copy-btn"
+      {/* Summary */}
+      {summary && (
+        <Card>
+          <CardContent className="p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">Session Summary</h3>
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   navigator.clipboard.writeText(summary);
                   setCopied(true);
                   setTimeout(() => setCopied(false), 2000);
                 }}
               >
-                {copied ? "Copied!" : "Copy"}
-              </button>
+                {copied ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-success" />
+                    <span className="text-success">Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy
+                  </>
+                )}
+              </Button>
             </div>
-            <div className="summary-content">{summary}</div>
-            <div className="refine-section">
-              <textarea
-                className="refine-input"
+            <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap bg-muted/50 rounded-lg p-4">
+              {summary}
+            </div>
+            <div className="space-y-3 pt-2 border-t border-border">
+              <Textarea
                 placeholder="Enter corrections or additional instructions..."
                 value={corrections}
                 onChange={(e) => setCorrections(e.target.value)}
                 rows={3}
               />
-              <button
-                className="refine-btn"
+              <Button
                 onClick={handleRefine}
                 disabled={refining || !corrections.trim()}
+                variant="secondary"
+                size="sm"
               >
+                <RefreshCw className={`h-3.5 w-3.5 ${refining ? "animate-spin" : ""}`} />
                 {refining ? "Refining..." : "Refine Summary"}
-              </button>
+              </Button>
             </div>
-          </div>
-        )}
+          </CardContent>
+        </Card>
+      )}
 
-        {transcript.length > 0 && (
-          <div className="transcript-section">
-            <h3>Transcript</h3>
-            <div className="transcript-lines">
+      {/* Transcript */}
+      {transcript.length > 0 && (
+        <Card>
+          <CardContent className="p-5 space-y-3">
+            <h3 className="text-sm font-semibold text-foreground">Transcript</h3>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
               {transcript.map((seg, i) => (
-                <div key={i} className="transcript-line">
+                <div key={i} className="flex gap-3 text-sm">
                   {seg.startTime !== null && (
-                    <span className="timestamp">
+                    <span className="font-mono text-xs text-muted-foreground pt-0.5 shrink-0 w-10">
                       {formatTimestamp(seg.startTime)}
                     </span>
                   )}
-                  <span className="transcript-text">{seg.text}</span>
+                  <span className="text-foreground leading-relaxed">{seg.text}</span>
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          </CardContent>
+        </Card>
+      )}
 
-        {screenshots.length > 0 && (
-          <div className="screenshots-section">
-            <h3>Bot Screenshots</h3>
-            <div className="screenshots-grid">
+      {/* Screenshots */}
+      {screenshots.length > 0 && (
+        <Card>
+          <CardContent className="p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <Image className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold text-foreground">Bot Screenshots</h3>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               {screenshots.map((s) => (
-                <div key={s.name} className="screenshot-item">
+                <div key={s.name} className="group">
                   <img
                     src={`${API_BASE_URL}${s.url}`}
                     alt={s.name}
                     loading="lazy"
+                    className="rounded-lg border border-border w-full object-cover transition-all group-hover:border-primary/50 group-hover:shadow-md"
                   />
-                  <span className="screenshot-label">{s.name}</span>
+                  <p className="text-xs text-muted-foreground mt-1.5 text-center">{s.name}</p>
                 </div>
               ))}
             </div>
-          </div>
-        )}
-      </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
