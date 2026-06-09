@@ -6,4 +6,5 @@ httpx
 aiofiles
 python-dotenv
 python-multipart
+aiomysql
 requests

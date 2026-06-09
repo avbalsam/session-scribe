@@ -53,6 +53,8 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const [corrections, setCorrections] = useState("");
   const [refining, setRefining] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
 
   useEffect(() => {
     const fetchScreenshots = async () => {
@@ -66,6 +68,16 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
     const interval = setInterval(fetchScreenshots, 3000);
     return () => clearInterval(interval);
   }, [sessionId]);
+
+  // Fetch templates when session is ready for transcription
+  useEffect(() => {
+    if (status === "stopped") {
+      apiFetch("/api/templates")
+        .then((res) => res.json())
+        .then((data) => { if (Array.isArray(data)) setTemplates(data); })
+        .catch(() => {});
+    }
+  }, [status]);
 
   useEffect(() => {
     if (status === "stopped" || status === "transcribing") {
@@ -113,7 +125,11 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const handleTranscribe = async () => {
     setTranscribing(true);
     try {
-      await apiFetch(`/api/sessions/${sessionId}/transcribe`, { method: "POST" });
+      await apiFetch(`/api/sessions/${sessionId}/transcribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId: selectedTemplateId || undefined }),
+      });
     } catch (err) {
       console.error("Failed to start transcription:", err);
       setTranscribing(false);
@@ -235,10 +251,27 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
               className="w-full h-10"
             />
             {transcript.length === 0 && !transcribing && (
-              <Button onClick={handleTranscribe} className="w-full">
-                <FileText className="h-4 w-4" />
-                Generate Transcript
-              </Button>
+              <div className="space-y-3">
+                {templates.length > 0 && (
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground">Template</label>
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(e) => setSelectedTemplateId(e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <option value="">Default (DIR/Floortime)</option>
+                      {templates.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <Button onClick={handleTranscribe} className="w-full">
+                  <FileText className="h-4 w-4" />
+                  Generate Transcript
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>
