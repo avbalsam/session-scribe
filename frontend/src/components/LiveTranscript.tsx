@@ -8,11 +8,9 @@ import { Card, CardContent } from "./ui/card";
 import { Textarea } from "./ui/textarea";
 import {
   Square,
-  Play,
   Copy,
   Check,
   RefreshCw,
-  Mic,
   Volume2,
   VolumeX,
   Clock,

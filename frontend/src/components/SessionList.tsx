@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { apiFetch } from "../api";
 import { Badge } from "./ui/badge";
-import { Clock, Mic } from "lucide-react";
+import { Clock } from "lucide-react";
 import { cn } from "../lib/utils";
 
 interface SessionSummary {
