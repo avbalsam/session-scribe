@@ -1,11 +1,23 @@
 import { useState, useRef, useEffect } from "react";
 import { apiFetch } from "../api";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
+import { cn } from "../lib/utils";
+import { Link, Hash, Upload, Mic, Square, Play } from "lucide-react";
 
 interface Props {
   onSessionStarted: (sessionId: string) => void;
 }
 
 type InputMode = "link" | "manual" | "upload" | "system-audio";
+
+const modes: { value: InputMode; label: string; icon: typeof Link }[] = [
+  { value: "link", label: "Zoom Link", icon: Link },
+  { value: "manual", label: "Meeting ID", icon: Hash },
+  { value: "upload", label: "Upload", icon: Upload },
+  { value: "system-audio", label: "System Audio", icon: Mic },
+];
 
 export function JoinMeetingForm({ onSessionStarted }: Props) {
   const [inputMode, setInputMode] = useState<InputMode>("link");
@@ -17,14 +29,12 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
 
-  // System audio recording state
   const [recording, setRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const sessionIdRef = useRef<string | null>(null);
 
-  // Recording duration timer
   useEffect(() => {
     if (!recording) {
       setRecordingDuration(0);
@@ -51,7 +61,6 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
   };
 
   const handleZoomJoin = async () => {
-    // Open Zoom for the user
     if (inputMode === "link") {
       window.open(zoomLink.trim(), "_blank");
     } else {
@@ -105,27 +114,21 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
 
   const handleSystemAudioStart = async () => {
     try {
-      // Request system audio capture — video track is required by browsers
-      // but we immediately discard it and only keep the audio
       const stream = await navigator.mediaDevices.getDisplayMedia({
         audio: true,
         video: true,
       });
 
-      // Stop video track immediately — we only need audio
       stream.getVideoTracks().forEach((t) => t.stop());
 
-      // Check we actually got an audio track
       if (stream.getAudioTracks().length === 0) {
         stream.getTracks().forEach((t) => t.stop());
         setError("No audio track available. Make sure to check 'Share audio' in the dialog.");
         return;
       }
 
-      // Create an audio-only stream for the recorder
       const audioStream = new MediaStream(stream.getAudioTracks());
 
-      // Create session on backend
       const res = await apiFetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -140,7 +143,6 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
 
       sessionIdRef.current = data.id;
 
-      // Start recording
       const recorder = new MediaRecorder(audioStream, {
         mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
           ? "audio/webm;codecs=opus"
@@ -154,7 +156,6 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
       };
 
       recorder.onstop = async () => {
-        // Upload recorded audio to backend
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         const formData = new FormData();
         formData.append("file", blob, "recording.webm");
@@ -170,20 +171,18 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
 
         audioStream.getTracks().forEach((t) => t.stop());
         setRecording(false);
-        // Now transition to the session view
         if (sessionIdRef.current) {
           onSessionStarted(sessionIdRef.current);
         }
       };
 
-      // Also stop if the user stops sharing
       audioStream.getAudioTracks()[0].addEventListener("ended", () => {
         if (recorder.state === "recording") {
           recorder.stop();
         }
       });
 
-      recorder.start(1000); // collect in 1s chunks
+      recorder.start(1000);
       setRecording(true);
     } catch (err: any) {
       if (err.name === "NotAllowedError") {
@@ -215,133 +214,171 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
     const timeStr = `${mins}:${String(secs).padStart(2, "0")}`;
 
     return (
-      <div className="join-form">
-        <h2>Recording System Audio</h2>
-        <p className="recording-status">{timeStr}</p>
-        <button type="button" className="stop-recording-btn" onClick={handleStopRecording}>
-          Stop Recording & Upload
-        </button>
-      </div>
+      <Card>
+        <CardContent className="p-8 flex flex-col items-center gap-6">
+          <div className="flex items-center justify-center h-16 w-16 rounded-full bg-destructive/10">
+            <Mic className="h-7 w-7 text-destructive animate-pulse-slow" />
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-medium text-muted-foreground mb-1">Recording System Audio</p>
+            <p className="text-3xl font-mono font-semibold text-foreground tracking-wider">{timeStr}</p>
+          </div>
+          <Button variant="destructive" size="lg" onClick={handleStopRecording}>
+            <Square className="h-4 w-4" />
+            Stop Recording & Upload
+          </Button>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="join-form">
-      <h2>Join a Meeting</h2>
+    <Card>
+      <CardHeader>
+        <CardTitle>New Session</CardTitle>
+        <CardDescription>
+          Start a new session by joining a meeting, uploading a recording, or capturing system audio.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Mode Selector */}
+          <div className="flex gap-1 p-1 bg-muted rounded-lg">
+            {modes.map(({ value, label, icon: Icon }) => (
+              <button
+                key={value}
+                type="button"
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md transition-all cursor-pointer border-none",
+                  inputMode === value
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground bg-transparent"
+                )}
+                onClick={() => setInputMode(value)}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
 
-      <div className="form-field toggle-field">
-        <button
-          type="button"
-          className={`toggle-btn ${inputMode === "link" ? "active" : ""}`}
-          onClick={() => setInputMode("link")}
-        >
-          Zoom Link
-        </button>
-        <button
-          type="button"
-          className={`toggle-btn ${inputMode === "manual" ? "active" : ""}`}
-          onClick={() => setInputMode("manual")}
-        >
-          Meeting ID
-        </button>
-        <button
-          type="button"
-          className={`toggle-btn ${inputMode === "upload" ? "active" : ""}`}
-          onClick={() => setInputMode("upload")}
-        >
-          Upload
-        </button>
-        <button
-          type="button"
-          className={`toggle-btn ${inputMode === "system-audio" ? "active" : ""}`}
-          onClick={() => setInputMode("system-audio")}
-        >
-          System Audio
-        </button>
-      </div>
+          {/* Mode-specific inputs */}
+          {inputMode === "link" && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground" htmlFor="zoomLink">
+                Zoom Link
+              </label>
+              <Input
+                id="zoomLink"
+                type="text"
+                placeholder="https://zoom.us/j/1234567890?pwd=..."
+                value={zoomLink}
+                onChange={(e) => setZoomLink(e.target.value)}
+                required
+              />
+            </div>
+          )}
 
-      {inputMode === "link" && (
-        <div className="form-field">
-          <label htmlFor="zoomLink">Zoom Link</label>
-          <input
-            id="zoomLink"
-            type="text"
-            placeholder="https://zoom.us/j/1234567890?pwd=..."
-            value={zoomLink}
-            onChange={(e) => setZoomLink(e.target.value)}
-            required
-          />
-        </div>
-      )}
+          {inputMode === "manual" && (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-foreground" htmlFor="meetingId">
+                  Meeting ID
+                </label>
+                <Input
+                  id="meetingId"
+                  type="text"
+                  placeholder="123 456 7890"
+                  value={meetingId}
+                  onChange={(e) => setMeetingId(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-foreground" htmlFor="passcode">
+                  Passcode
+                  <span className="text-muted-foreground font-normal ml-1">(optional)</span>
+                </label>
+                <Input
+                  id="passcode"
+                  type="text"
+                  placeholder="Meeting passcode"
+                  value={passcode}
+                  onChange={(e) => setPasscode(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
 
-      {inputMode === "manual" && (
-        <>
-          <div className="form-field">
-            <label htmlFor="meetingId">Meeting ID</label>
-            <input
-              id="meetingId"
+          {inputMode === "upload" && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground" htmlFor="fileUpload">
+                Video or Audio File
+              </label>
+              <Input
+                id="fileUpload"
+                type="file"
+                accept="video/*,audio/*"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                className="cursor-pointer file:mr-3 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-1 file:text-xs file:font-medium file:text-primary"
+              />
+              {file && (
+                <p className="text-xs text-muted-foreground">{file.name}</p>
+              )}
+            </div>
+          )}
+
+          {inputMode === "system-audio" && (
+            <div className="rounded-lg bg-muted/50 p-4">
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Click below to start capturing your system audio. You'll be prompted to select a screen or window to share audio from.
+              </p>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-foreground" htmlFor="botName">
+              Session Name
+            </label>
+            <Input
+              id="botName"
               type="text"
-              placeholder="123 456 7890"
-              value={meetingId}
-              onChange={(e) => setMeetingId(e.target.value)}
-              required
+              value={botName}
+              onChange={(e) => setBotName(e.target.value)}
             />
           </div>
-          <div className="form-field">
-            <label htmlFor="passcode">Passcode (optional)</label>
-            <input
-              id="passcode"
-              type="text"
-              placeholder="Meeting passcode"
-              value={passcode}
-              onChange={(e) => setPasscode(e.target.value)}
-            />
-          </div>
-        </>
-      )}
 
-      {inputMode === "upload" && (
-        <div className="form-field">
-          <label htmlFor="fileUpload">Video or Audio File</label>
-          <input
-            id="fileUpload"
-            type="file"
-            accept="video/*,audio/*"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-          />
-          {file && <p className="file-name">{file.name}</p>}
-        </div>
-      )}
+          {error && (
+            <div className="rounded-lg bg-destructive/10 px-4 py-3">
+              <p className="text-sm text-destructive">{error}</p>
+            </div>
+          )}
 
-      {inputMode === "system-audio" && (
-        <div className="form-field">
-          <p className="helper-text">
-            Click below to start capturing your system audio. You'll be prompted to select a screen or window to share audio from.
-          </p>
-        </div>
-      )}
-
-      <div className="form-field">
-        <label htmlFor="botName">Session Name</label>
-        <input
-          id="botName"
-          type="text"
-          value={botName}
-          onChange={(e) => setBotName(e.target.value)}
-        />
-      </div>
-
-      {error && <div className="error-message">{error}</div>}
-
-      <button type="submit" disabled={loading || !isValid}>
-        {loading
-          ? "Starting..."
-          : inputMode === "upload"
-          ? "Upload & Transcribe"
-          : inputMode === "system-audio"
-          ? "Start Recording"
-          : "Join Meeting"}
-      </button>
-    </form>
+          <Button type="submit" disabled={loading || !isValid} className="w-full" size="lg">
+            {loading ? (
+              <>
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                Starting...
+              </>
+            ) : inputMode === "upload" ? (
+              <>
+                <Upload className="h-4 w-4" />
+                Upload & Transcribe
+              </>
+            ) : inputMode === "system-audio" ? (
+              <>
+                <Mic className="h-4 w-4" />
+                Start Recording
+              </>
+            ) : (
+              <>
+                <Play className="h-4 w-4" />
+                Join Meeting
+              </>
+            )}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
