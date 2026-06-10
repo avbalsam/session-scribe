@@ -463,9 +463,12 @@ async def run_whisper_transcription(session_id: str):
 
         if summary:
             await store.set_summary(session_id, summary)
+            print(f"[transcribe] Summary saved ({len(summary)} chars)")
+        else:
+            print(f"[transcribe] WARNING: No summary generated")
 
         await store.update_status(session_id, "stopped")
-        print(f"[transcribe] Done — {len(transcript)} segments + summary for session {session_id}")
+        print(f"[transcribe] Done — {len(transcript)} segments for session {session_id}")
 
     except Exception as e:
         print(f"[transcribe] Error: {e}")

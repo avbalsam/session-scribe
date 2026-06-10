@@ -36,6 +36,7 @@ function App() {
   const handleSessionStarted = (sessionId: string, templateId?: string) => {
     setActiveSessionId(sessionId);
     if (templateId) setPreSelectedTemplateId(templateId);
+    setRefreshTrigger((n) => n + 1);
     setView("live");
   };
 
