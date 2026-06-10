@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { cn } from "../lib/utils";
+import { TemplateSelect } from "./ui/template-select";
 import { Link, Hash, Upload, Mic, Square, Play } from "lucide-react";
 
 interface Props {
@@ -373,16 +374,11 @@ export function JoinMeetingForm({ onSessionStarted, preSelectedTemplateId }: Pro
           {templates.length > 0 && (
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">Template</label>
-              <select
+              <TemplateSelect
+                templates={templates}
                 value={selectedTemplateId}
-                onChange={(e) => setSelectedTemplateId(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option value="">Select a template...</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.isSystem ? `${t.name} (Built-in)` : t.name}</option>
-                ))}
-              </select>
+                onChange={setSelectedTemplateId}
+              />
             </div>
           )}
 

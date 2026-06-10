@@ -3,6 +3,7 @@ import { useSessionSocket } from "../hooks/useTranscriptSocket";
 import { API_BASE_URL } from "../config";
 import { apiFetch } from "../api";
 import { Button } from "./ui/button";
+import { TemplateSelect } from "./ui/template-select";
 import { Badge } from "./ui/badge";
 import { Card, CardContent } from "./ui/card";
 import { Textarea } from "./ui/textarea";
@@ -279,16 +280,11 @@ export function LiveTranscript({ sessionId, status, onStop, initialTemplateId }:
             {templates.length > 0 && (
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-foreground">Template</label>
-                <select
+                <TemplateSelect
+                  templates={templates}
                   value={selectedTemplateId}
-                  onChange={(e) => setSelectedTemplateId(e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <option value="">Select a template...</option>
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>{t.isSystem ? `${t.name} (Built-in)` : t.name}</option>
-                  ))}
-                </select>
+                  onChange={setSelectedTemplateId}
+                />
               </div>
             )}
             {transcript.length === 0 && !transcribing && (
