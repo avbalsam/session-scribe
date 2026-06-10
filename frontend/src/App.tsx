@@ -49,9 +49,10 @@ function App() {
     return <LoginPage />;
   }
 
-  const handleSessionStarted = (sessionId: string) => {
+  const handleSessionStarted = (sessionId: string, templateId?: string) => {
     setActiveSessionId(sessionId);
     setSessionStatus("starting");
+    if (templateId) setPreSelectedTemplateId(templateId);
     setView("live");
   };
 

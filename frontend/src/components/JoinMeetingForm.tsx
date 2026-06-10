@@ -7,7 +7,7 @@ import { cn } from "../lib/utils";
 import { Link, Hash, Upload, Mic, Square, Play } from "lucide-react";
 
 interface Props {
-  onSessionStarted: (sessionId: string) => void;
+  onSessionStarted: (sessionId: string, templateId?: string) => void;
   preSelectedTemplateId?: string;
 }
 
@@ -29,6 +29,27 @@ export function JoinMeetingForm({ onSessionStarted, preSelectedTemplateId }: Pro
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [templates, setTemplates] = useState<{ id: string; name: string; isSystem?: boolean }[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(preSelectedTemplateId || "");
+
+  useEffect(() => {
+    apiFetch("/api/templates")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setTemplates(data);
+          if (!selectedTemplateId) {
+            const system = data.find((t: any) => t.isSystem);
+            if (system) setSelectedTemplateId(system.id);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (preSelectedTemplateId) setSelectedTemplateId(preSelectedTemplateId);
+  }, [preSelectedTemplateId]);
 
   const [recording, setRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -83,7 +104,7 @@ export function JoinMeetingForm({ onSessionStarted, preSelectedTemplateId }: Pro
       if (data.error) {
         setError(data.error);
       } else {
-        onSessionStarted(data.id);
+        onSessionStarted(data.id, selectedTemplateId || undefined);
       }
     } catch (err: any) {
       setError(err.message || "Failed to start session");
@@ -106,7 +127,7 @@ export function JoinMeetingForm({ onSessionStarted, preSelectedTemplateId }: Pro
       if (data.error) {
         setError(data.error);
       } else {
-        onSessionStarted(data.id);
+        onSessionStarted(data.id, selectedTemplateId || undefined);
       }
     } catch (err: any) {
       setError(err.message || "Failed to upload file");
@@ -173,7 +194,7 @@ export function JoinMeetingForm({ onSessionStarted, preSelectedTemplateId }: Pro
         audioStream.getTracks().forEach((t) => t.stop());
         setRecording(false);
         if (sessionIdRef.current) {
-          onSessionStarted(sessionIdRef.current);
+          onSessionStarted(sessionIdRef.current, selectedTemplateId || undefined);
         }
       };
 
@@ -349,10 +370,19 @@ export function JoinMeetingForm({ onSessionStarted, preSelectedTemplateId }: Pro
             />
           </div>
 
-          {preSelectedTemplateId && (
-            <div className="rounded-lg bg-primary/5 border border-primary/20 px-4 py-3">
-              <p className="text-sm text-primary font-medium">Template selected</p>
-              <p className="text-xs text-muted-foreground mt-0.5">A template will be applied when generating the summary.</p>
+          {templates.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">Template</label>
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => setSelectedTemplateId(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="">Select a template...</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>{t.isSystem ? `${t.name} (Built-in)` : t.name}</option>
+                ))}
+              </select>
             </div>
           )}
 
