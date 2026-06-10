@@ -2,6 +2,7 @@ import asyncio
 import base64
 import os
 import tempfile
+import uuid
 from typing import Optional
 
 import math
@@ -265,7 +266,7 @@ async def stop_session(session_id: str, user: User = Depends(get_current_user)):
 
 
 @app.post("/api/sessions/{session_id}/transcribe")
-async def transcribe_session(session_id: str, background_tasks: BackgroundTasks, user: User = Depends(get_current_user)):
+async def transcribe_session(session_id: str, request: Request, background_tasks: BackgroundTasks, user: User = Depends(get_current_user)):
     session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
@@ -274,8 +275,31 @@ async def transcribe_session(session_id: str, background_tasks: BackgroundTasks,
     if session.status == "transcribing":
         return JSONResponse({"error": "Transcription already in progress"}, status_code=409)
 
+    # Load custom template prompt if provided
+    system_prompt = None
+    try:
+        body = await request.json()
+        template_id = body.get("templateId")
+        if template_id:
+            pool = get_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute(
+                            """SELECT t.prompt_text FROM templates t
+                               WHERE t.id = %s AND (t.user_id = %s OR t.user_id IS NULL)""",
+                            (template_id, user.id),
+                        )
+                        row = await cur.fetchone()
+                        if row:
+                            system_prompt = row[0]
+                        else:
+                            return JSONResponse({"error": "Template not found"}, status_code=404)
+    except Exception:
+        pass  # No body or invalid JSON — use default prompt
+
     store.update_status(session_id, "transcribing")
-    background_tasks.add_task(run_whisper_transcription, session_id)
+    background_tasks.add_task(run_whisper_transcription, session_id, system_prompt)
     return {"status": "transcribing"}
 
 
@@ -287,15 +311,49 @@ async def refine_session_summary(session_id: str, body: dict, user: User = Depen
     if not session.summary:
         return JSONResponse({"error": "No summary to refine"}, status_code=400)
 
+    template_id = body.get("templateId")
     corrections = body.get("corrections", "").strip()
-    if not corrections:
-        return JSONResponse({"error": "corrections field is required"}, status_code=400)
+
+    if not template_id and not corrections:
+        return JSONResponse({"error": "templateId or corrections required"}, status_code=400)
 
     openai_api_key = os.environ.get("OPENAI_API_KEY")
     if not openai_api_key:
         return JSONResponse({"error": "OPENAI_API_KEY not configured"}, status_code=500)
 
+    # Load template prompt if provided
+    template_context = ""
+    if template_id:
+        pool = get_pool()
+        if not pool:
+            return JSONResponse({"error": "Database not available"}, status_code=503)
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """SELECT t.prompt_text FROM templates t
+                       WHERE t.id = %s AND (t.user_id = %s OR t.user_id IS NULL)""",
+                    (template_id, user.id),
+                )
+                row = await cur.fetchone()
+                if not row:
+                    return JSONResponse({"error": "Template not found"}, status_code=404)
+        template_context = f"\n\nThe session note should follow this template format:\n{row[0]}"
+
     try:
+        system_content = (
+            "You are a clinical documentation assistant. You previously generated a "
+            "session note. The therapist has provided corrections or "
+            "additional instructions. Apply their feedback to produce an updated session "
+            "note. Preserve the same structure and style, only modifying what the "
+            "therapist has asked to change." + template_context
+        )
+
+        user_content = f"Here is the current session note:\n\n{session.summary}"
+        if corrections:
+            user_content += f"\n\nPlease apply the following corrections:\n\n{corrections}"
+        if template_id and not corrections:
+            user_content += "\n\nPlease regenerate this note using the template format specified above."
+
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 "https://api.openai.com/v1/chat/completions",
@@ -306,23 +364,8 @@ async def refine_session_summary(session_id: str, body: dict, user: User = Depen
                 json={
                     "model": "gpt-4o-mini",
                     "messages": [
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are a clinical documentation assistant. You previously generated a "
-                                "DIR/Floortime session note. The therapist has provided corrections or "
-                                "additional instructions. Apply their feedback to produce an updated session "
-                                "note. Preserve the same structure and style, only modifying what the "
-                                "therapist has asked to change."
-                            ),
-                        },
-                        {
-                            "role": "user",
-                            "content": (
-                                f"Here is the current session note:\n\n{session.summary}\n\n"
-                                f"Please apply the following corrections:\n\n{corrections}"
-                            ),
-                        },
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": user_content},
                     ],
                     "max_tokens": 3000,
                     "temperature": 0.3,
@@ -343,7 +386,7 @@ async def refine_session_summary(session_id: str, body: dict, user: User = Depen
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-async def run_whisper_transcription(session_id: str):
+async def run_whisper_transcription(session_id: str, system_prompt: str | None = None):
     """Send audio to OpenAI Whisper API and store the transcript."""
     session = store.get(session_id)
     if not session:
@@ -396,7 +439,7 @@ async def run_whisper_transcription(session_id: str):
         # Generate summary using a low-cost model
         full_text = " ".join(seg.text for seg in session.transcript)
         if full_text.strip():
-            session.summary = await generate_session_summary(full_text, openai_api_key)
+            session.summary = await generate_session_summary(full_text, openai_api_key, system_prompt)
         else:
             session.summary = "No speech detected in the recording. The audio may be silent, corrupted, or contain no recognizable speech."
 
@@ -408,24 +451,9 @@ async def run_whisper_transcription(session_id: str):
         store.update_status(session_id, "error", f"Transcription failed: {str(e)}")
 
 
-async def generate_session_summary(transcript_text: str, api_key: str) -> Optional[str]:
-    """Generate a DIR/Floortime session note from a therapy session transcript."""
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "gpt-4o-mini",
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are a clinical documentation assistant for a DIR/Floortime therapist (QHP). "
-                                "Given a transcript of a therapy session, generate a detailed session note in the following structure:\n\n"
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a clinical documentation assistant for a DIR/Floortime therapist (QHP). "
+    "Given a transcript of a therapy session, generate a detailed session note in the following structure:\n\n"
                                 "1. **Header**: Include Client (use CLIENT as placeholder), DIR Player name (identify from transcript), and QHP: Avital Balsam\n\n"
                                 "2. **Opening summary paragraph**: QHP observed CLIENT's performance in relevant developmental areas "
                                 "(reciprocal communication, shared attention, symbolic thinking, emotional regulation, flexible problem solving, "
@@ -499,11 +527,29 @@ async def generate_session_summary(transcript_text: str, api_key: str) -> Option
                                 "also provided on continuing to expand imaginative play themes, collaborative problem-solving opportunities, and "
                                 "peer interactions through movement-based activities and emotionally meaningful shared experiences.\n"
                                 "---"
-                            ),
-                        },
+)
+
+
+async def generate_session_summary(transcript_text: str, api_key: str, system_prompt: str | None = None) -> Optional[str]:
+    """Generate a session note from a therapy session transcript using the given prompt."""
+    if not system_prompt:
+        return None
+    prompt = system_prompt
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                        {"role": "system", "content": prompt},
                         {
                             "role": "user",
-                            "content": f"Please generate a DIR/Floortime session note from the following therapy session transcript:\n\n{transcript_text[:15000]}",
+                            "content": f"Please generate a session note from the following therapy session transcript:\n\n{transcript_text[:15000]}",
                         },
                     ],
                     "max_tokens": 3000,
@@ -633,6 +679,170 @@ async def get_screenshot(session_id: str, screenshot_id: int, user: User = Depen
         media_type=row[1],
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+# --- Template Endpoints ---
+
+
+@app.post("/api/templates")
+async def create_template(body: dict, user: User = Depends(get_current_user)):
+    pool = get_pool()
+    if not pool:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+
+    name = body.get("name", "").strip()
+    prompt_text = body.get("promptText", "").strip()
+
+    if not name or not prompt_text:
+        return JSONResponse({"error": "name and promptText are required"}, status_code=400)
+
+    template_id = str(uuid.uuid4())
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO templates (id, user_id, name, prompt_text, is_public) VALUES (%s, %s, %s, %s, FALSE)",
+                (template_id, user.id, name, prompt_text),
+            )
+
+    return {"id": template_id, "name": name, "promptText": prompt_text, "isOwner": True}
+
+
+@app.get("/api/templates")
+async def list_templates(user: User = Depends(get_current_user)):
+    pool = get_pool()
+    if not pool:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """SELECT t.id, t.user_id, t.name, t.prompt_text, t.created_at, t.updated_at
+                   FROM templates t
+                   WHERE t.user_id = %s OR t.user_id IS NULL
+                   ORDER BY t.user_id IS NOT NULL, t.created_at DESC""",
+                (user.id,),
+            )
+            rows = await cur.fetchall()
+
+    return [
+        {
+            "id": r[0],
+            "userId": r[1],
+            "name": r[2],
+            "promptText": r[3],
+            "createdAt": r[4].isoformat() if r[4] else None,
+            "updatedAt": r[5].isoformat() if r[5] else None,
+            "isOwner": r[1] == user.id,
+            "isSystem": r[1] is None,
+        }
+        for r in rows
+    ]
+
+
+
+
+@app.get("/api/templates/system")
+async def list_system_templates(search: str = Query(default="")):
+    """List built-in system templates (no auth required to browse)."""
+    pool = get_pool()
+    if not pool:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            if search.strip():
+                await cur.execute(
+                    """SELECT id, name, prompt_text, created_at FROM templates
+                       WHERE user_id IS NULL AND name LIKE %s
+                       ORDER BY name""",
+                    (f"%{search.strip()}%",),
+                )
+            else:
+                await cur.execute(
+                    "SELECT id, name, prompt_text, created_at FROM templates WHERE user_id IS NULL ORDER BY name"
+                )
+            rows = await cur.fetchall()
+
+    return [
+        {"id": r[0], "name": r[1], "promptText": r[2], "createdAt": r[3].isoformat() if r[3] else None, "isSystem": True}
+        for r in rows
+    ]
+
+
+@app.get("/api/templates/{template_id}")
+async def get_template(template_id: str, user: User = Depends(get_current_user)):
+    pool = get_pool()
+    if not pool:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """SELECT t.id, t.user_id, t.name, t.prompt_text, t.is_public, t.created_at, t.updated_at
+                   FROM templates t
+                   WHERE t.id = %s AND (t.user_id = %s OR t.user_id IS NULL)""",
+                (template_id, user.id),
+            )
+            r = await cur.fetchone()
+
+    if not r:
+        return JSONResponse({"error": "Template not found"}, status_code=404)
+
+    return {
+        "id": r[0], "userId": r[1], "name": r[2], "promptText": r[3],
+        "isPublic": bool(r[4]), "createdAt": r[5].isoformat() if r[5] else None,
+        "updatedAt": r[6].isoformat() if r[6] else None, "isOwner": r[1] == user.id,
+    }
+
+
+@app.put("/api/templates/{template_id}")
+async def update_template(template_id: str, body: dict, user: User = Depends(get_current_user)):
+    pool = get_pool()
+    if not pool:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT user_id FROM templates WHERE id = %s", (template_id,))
+            row = await cur.fetchone()
+            if not row or row[0] != user.id:
+                return JSONResponse({"error": "Template not found"}, status_code=404)
+
+            updates = []
+            params = []
+            if "name" in body:
+                updates.append("name = %s")
+                params.append(body["name"].strip())
+            if "promptText" in body:
+                updates.append("prompt_text = %s")
+                params.append(body["promptText"].strip())
+
+            if not updates:
+                return JSONResponse({"error": "No fields to update"}, status_code=400)
+
+            params.append(template_id)
+            await cur.execute(f"UPDATE templates SET {', '.join(updates)} WHERE id = %s", params)
+
+    return {"status": "ok"}
+
+
+@app.delete("/api/templates/{template_id}")
+async def delete_template(template_id: str, user: User = Depends(get_current_user)):
+    pool = get_pool()
+    if not pool:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT user_id FROM templates WHERE id = %s", (template_id,))
+            row = await cur.fetchone()
+            if not row or row[0] != user.id:
+                return JSONResponse({"error": "Template not found"}, status_code=404)
+            await cur.execute("DELETE FROM templates WHERE id = %s", (template_id,))
+
+    return {"status": "ok"}
+
+
 
 
 # --- WebSocket Endpoints ---

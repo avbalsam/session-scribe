@@ -4,10 +4,12 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { cn } from "../lib/utils";
+import { TemplateSelect } from "./ui/template-select";
 import { Link, Hash, Upload, Mic, Square, Play } from "lucide-react";
 
 interface Props {
-  onSessionStarted: (sessionId: string) => void;
+  onSessionStarted: (sessionId: string, templateId?: string) => void;
+  preSelectedTemplateId?: string;
 }
 
 type InputMode = "link" | "manual" | "upload" | "system-audio";
@@ -19,7 +21,7 @@ const modes: { value: InputMode; label: string; icon: typeof Link }[] = [
   { value: "system-audio", label: "System Audio", icon: Mic },
 ];
 
-export function JoinMeetingForm({ onSessionStarted }: Props) {
+export function JoinMeetingForm({ onSessionStarted, preSelectedTemplateId }: Props) {
   const [inputMode, setInputMode] = useState<InputMode>("link");
   const [zoomLink, setZoomLink] = useState("");
   const [meetingId, setMeetingId] = useState("");
@@ -28,6 +30,27 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [templates, setTemplates] = useState<{ id: string; name: string; isSystem?: boolean }[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(preSelectedTemplateId || "");
+
+  useEffect(() => {
+    apiFetch("/api/templates")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setTemplates(data);
+          if (!selectedTemplateId) {
+            const system = data.find((t: any) => t.isSystem);
+            if (system) setSelectedTemplateId(system.id);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (preSelectedTemplateId) setSelectedTemplateId(preSelectedTemplateId);
+  }, [preSelectedTemplateId]);
 
   const [recording, setRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -82,7 +105,7 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
       if (data.error) {
         setError(data.error);
       } else {
-        onSessionStarted(data.id);
+        onSessionStarted(data.id, selectedTemplateId || undefined);
       }
     } catch (err: any) {
       setError(err.message || "Failed to start session");
@@ -105,7 +128,7 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
       if (data.error) {
         setError(data.error);
       } else {
-        onSessionStarted(data.id);
+        onSessionStarted(data.id, selectedTemplateId || undefined);
       }
     } catch (err: any) {
       setError(err.message || "Failed to upload file");
@@ -172,7 +195,7 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
         audioStream.getTracks().forEach((t) => t.stop());
         setRecording(false);
         if (sessionIdRef.current) {
-          onSessionStarted(sessionIdRef.current);
+          onSessionStarted(sessionIdRef.current, selectedTemplateId || undefined);
         }
       };
 
@@ -347,6 +370,17 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
               onChange={(e) => setBotName(e.target.value)}
             />
           </div>
+
+          {templates.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">Template</label>
+              <TemplateSelect
+                templates={templates}
+                value={selectedTemplateId}
+                onChange={setSelectedTemplateId}
+              />
+            </div>
+          )}
 
           {error && (
             <div className="rounded-lg bg-destructive/10 px-4 py-3">

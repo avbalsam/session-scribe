@@ -8,6 +8,21 @@ logger = logging.getLogger(__name__)
 
 _pool: aiomysql.Pool | None = None
 
+TEMPLATES_TABLE = """
+CREATE TABLE IF NOT EXISTS templates (
+  id CHAR(36) PRIMARY KEY,
+  user_id VARCHAR(255),
+  name VARCHAR(255) NOT NULL,
+  prompt_text TEXT NOT NULL,
+  is_public BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_user_id (user_id),
+  INDEX idx_is_public (is_public)
+)
+"""
+
+
 SCREENSHOTS_TABLE = """
 CREATE TABLE IF NOT EXISTS screenshots (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -22,11 +37,14 @@ CREATE TABLE IF NOT EXISTS screenshots (
 """
 
 
+SYSTEM_TEMPLATE_ID_DIR_FLOORTIME = "00000000-0000-0000-0000-000000000001"
+
+
 async def init_db():
     global _pool
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
-        logger.warning("DATABASE_URL not set -- screenshot persistence disabled")
+        logger.warning("DATABASE_URL not set -- database features disabled")
         return
 
     parsed = urlparse(database_url)
@@ -43,9 +61,28 @@ async def init_db():
 
     async with _pool.acquire() as conn:
         async with conn.cursor() as cur:
+            await cur.execute(TEMPLATES_TABLE)
             await cur.execute(SCREENSHOTS_TABLE)
+            # Ensure user_id is nullable (needed for system templates)
+            await cur.execute("ALTER TABLE templates MODIFY COLUMN user_id VARCHAR(255) NULL")
 
-    logger.info("Database initialized -- screenshots table ready")
+    await _seed_system_templates()
+    logger.info("Database initialized -- tables ready")
+
+
+async def _seed_system_templates():
+    """Insert built-in system templates if they don't already exist."""
+    from api.main import DEFAULT_SYSTEM_PROMPT
+
+    async with _pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT id FROM templates WHERE id = %s", (SYSTEM_TEMPLATE_ID_DIR_FLOORTIME,))
+            if not await cur.fetchone():
+                await cur.execute(
+                    "INSERT INTO templates (id, user_id, name, prompt_text, is_public) VALUES (%s, NULL, %s, %s, TRUE)",
+                    (SYSTEM_TEMPLATE_ID_DIR_FLOORTIME, "DIR/Floortime Session Note", DEFAULT_SYSTEM_PROMPT),
+                )
+                logger.info("Seeded system template: DIR/Floortime Session Note")
 
 
 async def close_db():

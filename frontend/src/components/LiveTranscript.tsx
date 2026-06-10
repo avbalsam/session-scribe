@@ -3,6 +3,7 @@ import { useSessionSocket } from "../hooks/useTranscriptSocket";
 import { API_BASE_URL } from "../config";
 import { apiFetch } from "../api";
 import { Button } from "./ui/button";
+import { TemplateSelect } from "./ui/template-select";
 import { Badge } from "./ui/badge";
 import { Card, CardContent } from "./ui/card";
 import { Textarea } from "./ui/textarea";
@@ -24,6 +25,7 @@ interface Props {
   sessionId: string;
   status: string;
   onStop: () => void;
+  initialTemplateId?: string;
 }
 
 interface TranscriptSegment {
@@ -39,7 +41,7 @@ interface SessionData {
   status: string;
 }
 
-export function LiveTranscript({ sessionId, status, onStop }: Props) {
+export function LiveTranscript({ sessionId, status, onStop, initialTemplateId }: Props) {
   const { level, duration, connected } = useSessionSocket(
     status === "recording" ? sessionId : null
   );
@@ -50,6 +52,27 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const [corrections, setCorrections] = useState("");
   const [refining, setRefining] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [templates, setTemplates] = useState<{ id: string; name: string; isSystem?: boolean }[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(initialTemplateId || "");
+
+  // Fetch templates when session is ready for transcription
+  useEffect(() => {
+    if (status === "stopped") {
+      apiFetch("/api/templates")
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setTemplates(data);
+            // Auto-select the system template as default
+            const system = data.find((t: any) => t.isSystem);
+            if (system && !selectedTemplateId) {
+              setSelectedTemplateId(system.id);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [status]);
 
   useEffect(() => {
     if (status === "stopped" || status === "transcribing") {
@@ -97,7 +120,11 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const handleTranscribe = async () => {
     setTranscribing(true);
     try {
-      await apiFetch(`/api/sessions/${sessionId}/transcribe`, { method: "POST" });
+      await apiFetch(`/api/sessions/${sessionId}/transcribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId: selectedTemplateId || undefined }),
+      });
     } catch (err) {
       console.error("Failed to start transcription:", err);
       setTranscribing(false);
@@ -105,13 +132,16 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   };
 
   const handleRefine = async () => {
-    if (!corrections.trim()) return;
+    if (!corrections.trim() && !selectedTemplateId) return;
     setRefining(true);
     try {
       const res = await apiFetch(`/api/sessions/${sessionId}/refine-summary`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ corrections: corrections.trim() }),
+        body: JSON.stringify({
+          corrections: corrections.trim() || undefined,
+          templateId: selectedTemplateId || undefined,
+        }),
       });
       const data = await res.json();
       if (data.summary) {
@@ -238,7 +268,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
         </Card>
       )}
 
-      {/* Audio Playback */}
+      {/* Audio Playback & Template Selection */}
       {isStopped && (
         <Card>
           <CardContent className="p-5 space-y-4">
@@ -247,6 +277,16 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
               src={`${API_BASE_URL}/api/sessions/${sessionId}/audio`}
               className="w-full h-10"
             />
+            {templates.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-foreground">Template</label>
+                <TemplateSelect
+                  templates={templates}
+                  value={selectedTemplateId}
+                  onChange={setSelectedTemplateId}
+                />
+              </div>
+            )}
             {transcript.length === 0 && !transcribing && (
               <Button onClick={handleTranscribe} className="w-full">
                 <FileText className="h-4 w-4" />
@@ -307,7 +347,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
               />
               <Button
                 onClick={handleRefine}
-                disabled={refining || !corrections.trim()}
+                disabled={refining || (!corrections.trim() && !selectedTemplateId)}
                 variant="secondary"
                 size="sm"
               >

@@ -3,12 +3,14 @@ import { JoinMeetingForm } from "./components/JoinMeetingForm";
 import { LiveTranscript } from "./components/LiveTranscript";
 import { SessionList } from "./components/SessionList";
 import { LoginPage } from "./components/LoginPage";
+import { TemplateManager } from "./components/TemplateManager";
 import { useAuth } from "./auth/AuthContext";
 import { apiFetch } from "./api";
 import { Button } from "./components/ui/button";
-import { LogOut, FileText } from "lucide-react";
+import { LogOut, FileText, Plus, LayoutTemplate } from "lucide-react";
+import { cn } from "./lib/utils";
 
-type View = "home" | "live";
+type View = "home" | "live" | "templates";
 
 function App() {
   const { user, loading, signOut } = useAuth();
@@ -16,6 +18,7 @@ function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<string>("starting");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [preSelectedTemplateId, setPreSelectedTemplateId] = useState<string>("");
 
   useEffect(() => {
     if (!activeSessionId) return;
@@ -46,9 +49,10 @@ function App() {
     return <LoginPage />;
   }
 
-  const handleSessionStarted = (sessionId: string) => {
+  const handleSessionStarted = (sessionId: string, templateId?: string) => {
     setActiveSessionId(sessionId);
     setSessionStatus("starting");
+    if (templateId) setPreSelectedTemplateId(templateId);
     setView("live");
   };
 
@@ -79,6 +83,29 @@ function App() {
             </h1>
           </button>
         </div>
+
+        <nav className="px-3 pt-3 space-y-1">
+          <button
+            onClick={() => { setView("home"); setActiveSessionId(null); }}
+            className={cn(
+              "w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors cursor-pointer border-none",
+              view === "home" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent/50 bg-transparent"
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            New Session
+          </button>
+          <button
+            onClick={() => setView("templates")}
+            className={cn(
+              "w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors cursor-pointer border-none",
+              view === "templates" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent/50 bg-transparent"
+            )}
+          >
+            <LayoutTemplate className="h-4 w-4" />
+            Templates
+          </button>
+        </nav>
 
         <div className="flex-1 overflow-y-auto">
           <SessionList
@@ -125,7 +152,10 @@ function App() {
       <main className="flex-1 overflow-y-auto">
         {view === "home" && (
           <div className="max-w-2xl mx-auto p-8">
-            <JoinMeetingForm onSessionStarted={handleSessionStarted} />
+            <JoinMeetingForm
+              onSessionStarted={handleSessionStarted}
+              preSelectedTemplateId={preSelectedTemplateId}
+            />
           </div>
         )}
 
@@ -134,6 +164,16 @@ function App() {
             sessionId={activeSessionId}
             status={sessionStatus}
             onStop={handleStop}
+            initialTemplateId={preSelectedTemplateId}
+          />
+        )}
+
+        {view === "templates" && (
+          <TemplateManager
+            onStartSession={(templateId) => {
+              setPreSelectedTemplateId(templateId);
+              setView("home");
+            }}
           />
         )}
       </main>

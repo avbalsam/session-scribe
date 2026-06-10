@@ -6,6 +6,6 @@ httpx
 aiofiles
 python-dotenv
 python-multipart
-requests
 aiomysql
 cryptography
+requests
