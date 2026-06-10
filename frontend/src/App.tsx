@@ -18,6 +18,7 @@ function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<string>("starting");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [preSelectedTemplateId, setPreSelectedTemplateId] = useState<string>("");
 
   useEffect(() => {
     if (!activeSessionId) return;
@@ -150,7 +151,10 @@ function App() {
       <main className="flex-1 overflow-y-auto">
         {view === "home" && (
           <div className="max-w-2xl mx-auto p-8">
-            <JoinMeetingForm onSessionStarted={handleSessionStarted} />
+            <JoinMeetingForm
+              onSessionStarted={handleSessionStarted}
+              preSelectedTemplateId={preSelectedTemplateId}
+            />
           </div>
         )}
 
@@ -159,10 +163,18 @@ function App() {
             sessionId={activeSessionId}
             status={sessionStatus}
             onStop={handleStop}
+            initialTemplateId={preSelectedTemplateId}
           />
         )}
 
-        {view === "templates" && <TemplateManager />}
+        {view === "templates" && (
+          <TemplateManager
+            onStartSession={(templateId) => {
+              setPreSelectedTemplateId(templateId);
+              setView("home");
+            }}
+          />
+        )}
       </main>
     </div>
   );

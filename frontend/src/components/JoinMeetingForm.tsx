@@ -8,6 +8,7 @@ import { Link, Hash, Upload, Mic, Square, Play } from "lucide-react";
 
 interface Props {
   onSessionStarted: (sessionId: string) => void;
+  preSelectedTemplateId?: string;
 }
 
 type InputMode = "link" | "manual" | "upload" | "system-audio";
@@ -19,7 +20,7 @@ const modes: { value: InputMode; label: string; icon: typeof Link }[] = [
   { value: "system-audio", label: "System Audio", icon: Mic },
 ];
 
-export function JoinMeetingForm({ onSessionStarted }: Props) {
+export function JoinMeetingForm({ onSessionStarted, preSelectedTemplateId }: Props) {
   const [inputMode, setInputMode] = useState<InputMode>("link");
   const [zoomLink, setZoomLink] = useState("");
   const [meetingId, setMeetingId] = useState("");
@@ -347,6 +348,13 @@ export function JoinMeetingForm({ onSessionStarted }: Props) {
               onChange={(e) => setBotName(e.target.value)}
             />
           </div>
+
+          {preSelectedTemplateId && (
+            <div className="rounded-lg bg-primary/5 border border-primary/20 px-4 py-3">
+              <p className="text-sm text-primary font-medium">Template selected</p>
+              <p className="text-xs text-muted-foreground mt-0.5">A template will be applied when generating the summary.</p>
+            </div>
+          )}
 
           {error && (
             <div className="rounded-lg bg-destructive/10 px-4 py-3">

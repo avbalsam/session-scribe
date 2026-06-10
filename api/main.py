@@ -285,12 +285,10 @@ async def transcribe_session(session_id: str, request: Request, background_tasks
             if pool:
                 async with pool.acquire() as conn:
                     async with conn.cursor() as cur:
-                        # User can use templates they own, public ones, or ones they imported
                         await cur.execute(
                             """SELECT t.prompt_text FROM templates t
-                               LEFT JOIN user_template_library utl ON t.id = utl.template_id AND utl.user_id = %s
-                               WHERE t.id = %s AND (t.user_id = %s OR t.is_public = TRUE OR utl.user_id IS NOT NULL)""",
-                            (user.id, template_id, user.id),
+                               WHERE t.id = %s AND (t.user_id = %s OR t.user_id IS NULL)""",
+                            (template_id, user.id),
                         )
                         row = await cur.fetchone()
                         if row:
@@ -313,15 +311,49 @@ async def refine_session_summary(session_id: str, body: dict, user: User = Depen
     if not session.summary:
         return JSONResponse({"error": "No summary to refine"}, status_code=400)
 
+    template_id = body.get("templateId")
     corrections = body.get("corrections", "").strip()
-    if not corrections:
-        return JSONResponse({"error": "corrections field is required"}, status_code=400)
+
+    if not template_id and not corrections:
+        return JSONResponse({"error": "templateId or corrections required"}, status_code=400)
 
     openai_api_key = os.environ.get("OPENAI_API_KEY")
     if not openai_api_key:
         return JSONResponse({"error": "OPENAI_API_KEY not configured"}, status_code=500)
 
+    # Load template prompt if provided
+    template_context = ""
+    if template_id:
+        pool = get_pool()
+        if not pool:
+            return JSONResponse({"error": "Database not available"}, status_code=503)
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """SELECT t.prompt_text FROM templates t
+                       WHERE t.id = %s AND (t.user_id = %s OR t.user_id IS NULL)""",
+                    (template_id, user.id),
+                )
+                row = await cur.fetchone()
+                if not row:
+                    return JSONResponse({"error": "Template not found"}, status_code=404)
+        template_context = f"\n\nThe session note should follow this template format:\n{row[0]}"
+
     try:
+        system_content = (
+            "You are a clinical documentation assistant. You previously generated a "
+            "session note. The therapist has provided corrections or "
+            "additional instructions. Apply their feedback to produce an updated session "
+            "note. Preserve the same structure and style, only modifying what the "
+            "therapist has asked to change." + template_context
+        )
+
+        user_content = f"Here is the current session note:\n\n{session.summary}"
+        if corrections:
+            user_content += f"\n\nPlease apply the following corrections:\n\n{corrections}"
+        if template_id and not corrections:
+            user_content += "\n\nPlease regenerate this note using the template format specified above."
+
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 "https://api.openai.com/v1/chat/completions",
@@ -332,23 +364,8 @@ async def refine_session_summary(session_id: str, body: dict, user: User = Depen
                 json={
                     "model": "gpt-4o-mini",
                     "messages": [
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are a clinical documentation assistant. You previously generated a "
-                                "DIR/Floortime session note. The therapist has provided corrections or "
-                                "additional instructions. Apply their feedback to produce an updated session "
-                                "note. Preserve the same structure and style, only modifying what the "
-                                "therapist has asked to change."
-                            ),
-                        },
-                        {
-                            "role": "user",
-                            "content": (
-                                f"Here is the current session note:\n\n{session.summary}\n\n"
-                                f"Please apply the following corrections:\n\n{corrections}"
-                            ),
-                        },
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": user_content},
                     ],
                     "max_tokens": 3000,
                     "temperature": 0.3,
@@ -724,6 +741,34 @@ async def list_templates(user: User = Depends(get_current_user)):
 
 
 
+@app.get("/api/templates/system")
+async def list_system_templates(search: str = Query(default="")):
+    """List built-in system templates (no auth required to browse)."""
+    pool = get_pool()
+    if not pool:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            if search.strip():
+                await cur.execute(
+                    """SELECT id, name, prompt_text, created_at FROM templates
+                       WHERE user_id IS NULL AND name LIKE %s
+                       ORDER BY name""",
+                    (f"%{search.strip()}%",),
+                )
+            else:
+                await cur.execute(
+                    "SELECT id, name, prompt_text, created_at FROM templates WHERE user_id IS NULL ORDER BY name"
+                )
+            rows = await cur.fetchall()
+
+    return [
+        {"id": r[0], "name": r[1], "promptText": r[2], "createdAt": r[3].isoformat() if r[3] else None, "isSystem": True}
+        for r in rows
+    ]
+
+
 @app.get("/api/templates/{template_id}")
 async def get_template(template_id: str, user: User = Depends(get_current_user)):
     pool = get_pool()
@@ -735,9 +780,8 @@ async def get_template(template_id: str, user: User = Depends(get_current_user))
             await cur.execute(
                 """SELECT t.id, t.user_id, t.name, t.prompt_text, t.is_public, t.created_at, t.updated_at
                    FROM templates t
-                   LEFT JOIN user_template_library utl ON t.id = utl.template_id AND utl.user_id = %s
-                   WHERE t.id = %s AND (t.user_id = %s OR t.is_public = TRUE OR utl.user_id IS NOT NULL)""",
-                (user.id, template_id, user.id),
+                   WHERE t.id = %s AND (t.user_id = %s OR t.user_id IS NULL)""",
+                (template_id, user.id),
             )
             r = await cur.fetchone()
 

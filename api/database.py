@@ -22,15 +22,6 @@ CREATE TABLE IF NOT EXISTS templates (
 )
 """
 
-USER_TEMPLATE_LIBRARY_TABLE = """
-CREATE TABLE IF NOT EXISTS user_template_library (
-  user_id VARCHAR(255) NOT NULL,
-  template_id CHAR(36) NOT NULL,
-  imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (user_id, template_id),
-  FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
-)
-"""
 
 SCREENSHOTS_TABLE = """
 CREATE TABLE IF NOT EXISTS screenshots (
@@ -71,7 +62,6 @@ async def init_db():
     async with _pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(TEMPLATES_TABLE)
-            await cur.execute(USER_TEMPLATE_LIBRARY_TABLE)
             await cur.execute(SCREENSHOTS_TABLE)
             # Ensure user_id is nullable (needed for system templates)
             await cur.execute("ALTER TABLE templates MODIFY COLUMN user_id VARCHAR(255) NULL")

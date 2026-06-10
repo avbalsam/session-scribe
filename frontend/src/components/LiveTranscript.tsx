@@ -24,6 +24,7 @@ interface Props {
   sessionId: string;
   status: string;
   onStop: () => void;
+  initialTemplateId?: string;
 }
 
 interface TranscriptSegment {
@@ -39,7 +40,7 @@ interface SessionData {
   status: string;
 }
 
-export function LiveTranscript({ sessionId, status, onStop }: Props) {
+export function LiveTranscript({ sessionId, status, onStop, initialTemplateId }: Props) {
   const { level, duration, connected } = useSessionSocket(
     status === "recording" ? sessionId : null
   );
@@ -51,7 +52,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const [refining, setRefining] = useState(false);
   const [copied, setCopied] = useState(false);
   const [templates, setTemplates] = useState<{ id: string; name: string; isSystem?: boolean }[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(initialTemplateId || "");
 
   // Fetch templates when session is ready for transcription
   useEffect(() => {
@@ -130,13 +131,16 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   };
 
   const handleRefine = async () => {
-    if (!corrections.trim()) return;
+    if (!corrections.trim() && !selectedTemplateId) return;
     setRefining(true);
     try {
       const res = await apiFetch(`/api/sessions/${sessionId}/refine-summary`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ corrections: corrections.trim() }),
+        body: JSON.stringify({
+          corrections: corrections.trim() || undefined,
+          templateId: selectedTemplateId || undefined,
+        }),
       });
       const data = await res.json();
       if (data.summary) {
@@ -263,7 +267,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
         </Card>
       )}
 
-      {/* Audio Playback */}
+      {/* Audio Playback & Template Selection */}
       {isStopped && (
         <Card>
           <CardContent className="p-5 space-y-4">
@@ -272,28 +276,26 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
               src={`${API_BASE_URL}/api/sessions/${sessionId}/audio`}
               className="w-full h-10"
             />
-            {transcript.length === 0 && !transcribing && (
-              <div className="space-y-3">
-                {templates.length > 0 && (
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-foreground">Template</label>
-                    <select
-                      value={selectedTemplateId}
-                      onChange={(e) => setSelectedTemplateId(e.target.value)}
-                      className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <option value="">Select a template...</option>
-                      {templates.map((t) => (
-                        <option key={t.id} value={t.id}>{t.isSystem ? `${t.name} (Built-in)` : t.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <Button onClick={handleTranscribe} className="w-full">
-                  <FileText className="h-4 w-4" />
-                  Generate Transcript
-                </Button>
+            {templates.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-foreground">Template</label>
+                <select
+                  value={selectedTemplateId}
+                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="">Select a template...</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>{t.isSystem ? `${t.name} (Built-in)` : t.name}</option>
+                  ))}
+                </select>
               </div>
+            )}
+            {transcript.length === 0 && !transcribing && (
+              <Button onClick={handleTranscribe} className="w-full">
+                <FileText className="h-4 w-4" />
+                Generate Transcript
+              </Button>
             )}
           </CardContent>
         </Card>
@@ -349,7 +351,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
               />
               <Button
                 onClick={handleRefine}
-                disabled={refining || !corrections.trim()}
+                disabled={refining || (!corrections.trim() && !selectedTemplateId)}
                 variant="secondary"
                 size="sm"
               >

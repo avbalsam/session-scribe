@@ -5,11 +5,14 @@ import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Badge } from "./ui/badge";
+import { cn } from "../lib/utils";
 import {
   Plus,
   Pencil,
   Trash2,
   ChevronLeft,
+  Search,
+  Play,
 } from "lucide-react";
 
 interface Template {
@@ -17,34 +20,66 @@ interface Template {
   userId: string | null;
   name: string;
   promptText: string;
-  isOwner: boolean;
+  isOwner?: boolean;
   isSystem?: boolean;
   createdAt: string | null;
 }
 
-export function TemplateManager() {
+interface Props {
+  onStartSession: (templateId: string) => void;
+}
+
+type Tab = "mine" | "system";
+
+export function TemplateManager({ onStartSession }: Props) {
+  const [tab, setTab] = useState<Tab>("mine");
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [systemTemplates, setSystemTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
 
   // Form state
-  const [editing, setEditing] = useState<string | null>(null); // template id or "new"
+  const [editing, setEditing] = useState<string | null>(null);
   const [formName, setFormName] = useState("");
   const [formPrompt, setFormPrompt] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetchTemplates();
-  }, []);
+    if (tab === "mine") {
+      fetchTemplates();
+    } else {
+      fetchSystemTemplates();
+    }
+  }, [tab]);
 
   const fetchTemplates = async () => {
     setLoading(true);
     try {
       const res = await apiFetch("/api/templates");
-      setTemplates(await res.json());
+      const data = await res.json();
+      setTemplates(Array.isArray(data) ? data : []);
     } catch {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchSystemTemplates = async () => {
+    setLoading(true);
+    try {
+      const q = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
+      const res = await apiFetch(`/api/templates/system${q}`);
+      const data = await res.json();
+      setSystemTemplates(Array.isArray(data) ? data : []);
+    } catch {
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetchSystemTemplates();
   };
 
   const startCreate = () => {
@@ -144,26 +179,114 @@ export function TemplateManager() {
     );
   }
 
-  // Separate system and user templates
-  const systemTemplates = templates.filter((t) => t.isSystem);
   const userTemplates = templates.filter((t) => !t.isSystem);
 
   return (
     <div className="max-w-2xl mx-auto p-8 space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-foreground">Templates</h2>
-        <Button size="sm" onClick={startCreate}>
-          <Plus className="h-4 w-4" />
-          New Template
-        </Button>
+        {tab === "mine" && (
+          <Button size="sm" onClick={startCreate}>
+            <Plus className="h-4 w-4" />
+            New Template
+          </Button>
+        )}
       </div>
 
-      {loading && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {/* Tab switcher */}
+      <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+        <button
+          className={cn(
+            "px-4 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer border-none",
+            tab === "mine" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground bg-transparent"
+          )}
+          onClick={() => setTab("mine")}
+        >
+          My Templates
+        </button>
+        <button
+          className={cn(
+            "px-4 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer border-none",
+            tab === "system" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground bg-transparent"
+          )}
+          onClick={() => setTab("system")}
+        >
+          Built-in Templates
+        </button>
+      </div>
 
-      {/* System templates */}
-      {systemTemplates.length > 0 && (
+      {/* My Templates */}
+      {tab === "mine" && (
         <div className="space-y-3">
-          <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Built-in Templates</h3>
+          {loading && <p className="text-sm text-muted-foreground">Loading...</p>}
+          {!loading && userTemplates.length === 0 && (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <p className="text-muted-foreground text-sm mb-4">
+                  No custom templates yet. Create one to customize how session summaries are generated.
+                </p>
+                <Button size="sm" onClick={startCreate}>
+                  <Plus className="h-4 w-4" />
+                  Create your first template
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          {userTemplates.map((t) => (
+            <Card key={t.id}>
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground mb-1">{t.name}</p>
+                    <p className="text-xs text-muted-foreground line-clamp-2">
+                      {t.promptText.slice(0, 150)}...
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onStartSession(t.id)} title="Start session with this template">
+                      <Play className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(t)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={() => handleDelete(t.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* System Templates */}
+      {tab === "system" && (
+        <div className="space-y-3">
+          <form onSubmit={handleSearchSubmit} className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search built-in templates..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Button type="submit" variant="secondary">Search</Button>
+          </form>
+
+          {loading && <p className="text-sm text-muted-foreground">Loading...</p>}
+          {!loading && systemTemplates.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              No templates found.
+            </p>
+          )}
           {systemTemplates.map((t) => (
             <Card key={t.id}>
               <CardContent className="p-4">
@@ -177,57 +300,15 @@ export function TemplateManager() {
                       {t.promptText.slice(0, 150)}...
                     </p>
                   </div>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => onStartSession(t.id)} title="Start session with this template">
+                    <Play className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
-
-      {/* User templates */}
-      <div className="space-y-3">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">My Templates</h3>
-        {!loading && userTemplates.length === 0 && (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <p className="text-muted-foreground text-sm mb-4">
-                No custom templates yet. Create one to customize how session summaries are generated.
-              </p>
-              <Button size="sm" onClick={startCreate}>
-                <Plus className="h-4 w-4" />
-                Create your first template
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-        {userTemplates.map((t) => (
-          <Card key={t.id}>
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground mb-1">{t.name}</p>
-                  <p className="text-xs text-muted-foreground line-clamp-2">
-                    {t.promptText.slice(0, 150)}...
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(t)}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive hover:text-destructive"
-                    onClick={() => handleDelete(t.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </div>
   );
 }
