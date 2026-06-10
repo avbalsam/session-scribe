@@ -37,6 +37,41 @@ CREATE TABLE IF NOT EXISTS screenshots (
 """
 
 
+RECORDING_SESSIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS recording_sessions (
+  id CHAR(36) PRIMARY KEY,
+  owner_id VARCHAR(255) NOT NULL,
+  meeting_id VARCHAR(255) NOT NULL,
+  passcode VARCHAR(255),
+  bot_name VARCHAR(255) NOT NULL DEFAULT 'Session Scribe Bot',
+  template_id CHAR(36),
+  status VARCHAR(50) NOT NULL DEFAULT 'starting',
+  error_message TEXT,
+  audio_file_path VARCHAR(512),
+  summary TEXT,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  max_end_time DATETIME NOT NULL,
+  ended_at DATETIME,
+  INDEX idx_owner_id (owner_id),
+  INDEX idx_status (status)
+)
+"""
+
+TRANSCRIPT_SEGMENTS_TABLE = """
+CREATE TABLE IF NOT EXISTS transcript_segments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  session_id CHAR(36) NOT NULL,
+  text TEXT NOT NULL,
+  speaker VARCHAR(255),
+  start_time FLOAT,
+  end_time FLOAT,
+  confidence FLOAT,
+  segment_order INT NOT NULL,
+  INDEX idx_session_id (session_id),
+  FOREIGN KEY (session_id) REFERENCES recording_sessions(id) ON DELETE CASCADE
+)
+"""
+
 SYSTEM_TEMPLATE_ID_DIR_FLOORTIME = "00000000-0000-0000-0000-000000000001"
 
 
@@ -62,6 +97,8 @@ async def init_db():
     async with _pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(TEMPLATES_TABLE)
+            await cur.execute(RECORDING_SESSIONS_TABLE)
+            await cur.execute(TRANSCRIPT_SEGMENTS_TABLE)
             await cur.execute(SCREENSHOTS_TABLE)
             # Ensure user_id is nullable (needed for system templates)
             await cur.execute("ALTER TABLE templates MODIFY COLUMN user_id VARCHAR(255) NULL")

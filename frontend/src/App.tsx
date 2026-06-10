@@ -1,11 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { JoinMeetingForm } from "./components/JoinMeetingForm";
 import { LiveTranscript } from "./components/LiveTranscript";
 import { SessionList } from "./components/SessionList";
 import { LoginPage } from "./components/LoginPage";
 import { TemplateManager } from "./components/TemplateManager";
 import { useAuth } from "./auth/AuthContext";
-import { apiFetch } from "./api";
 import { Button } from "./components/ui/button";
 import { LogOut, FileText, Plus, LayoutTemplate } from "lucide-react";
 import { cn } from "./lib/utils";
@@ -16,23 +15,8 @@ function App() {
   const { user, loading, signOut } = useAuth();
   const [view, setView] = useState<View>("home");
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [sessionStatus, setSessionStatus] = useState<string>("starting");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [preSelectedTemplateId, setPreSelectedTemplateId] = useState<string>("");
-
-  useEffect(() => {
-    if (!activeSessionId) return;
-
-    const poll = setInterval(async () => {
-      try {
-        const res = await apiFetch(`/api/sessions/${activeSessionId}`);
-        const data = await res.json();
-        setSessionStatus(data.status);
-      } catch {}
-    }, 2000);
-
-    return () => clearInterval(poll);
-  }, [activeSessionId]);
 
   if (loading) {
     return (
@@ -51,13 +35,12 @@ function App() {
 
   const handleSessionStarted = (sessionId: string, templateId?: string) => {
     setActiveSessionId(sessionId);
-    setSessionStatus("starting");
     if (templateId) setPreSelectedTemplateId(templateId);
+    setRefreshTrigger((n) => n + 1);
     setView("live");
   };
 
   const handleStop = () => {
-    setSessionStatus("stopped");
     setRefreshTrigger((n) => n + 1);
   };
 
@@ -111,7 +94,6 @@ function App() {
           <SessionList
             onSelectSession={(id) => {
               setActiveSessionId(id);
-              setSessionStatus("stopped");
               setView("live");
             }}
             refreshTrigger={refreshTrigger}
@@ -162,7 +144,6 @@ function App() {
         {view === "live" && activeSessionId && (
           <LiveTranscript
             sessionId={activeSessionId}
-            status={sessionStatus}
             onStop={handleStop}
             initialTemplateId={preSelectedTemplateId}
           />

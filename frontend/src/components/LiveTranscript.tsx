@@ -19,11 +19,11 @@ import {
   Clock,
   FileText,
   Image,
+  AlertCircle,
 } from "lucide-react";
 
 interface Props {
   sessionId: string;
-  status: string;
   onStop: () => void;
   initialTemplateId?: string;
 }
@@ -39,9 +39,11 @@ interface SessionData {
   transcript: TranscriptSegment[];
   summary: string | null;
   status: string;
+  errorMessage: string | null;
 }
 
-export function LiveTranscript({ sessionId, status, onStop, initialTemplateId }: Props) {
+export function LiveTranscript({ sessionId, onStop, initialTemplateId }: Props) {
+  const [status, setStatus] = useState<string>("starting");
   const { level, duration, connected } = useSessionSocket(
     status === "recording" ? sessionId : null
   );
@@ -52,18 +54,37 @@ export function LiveTranscript({ sessionId, status, onStop, initialTemplateId }:
   const [corrections, setCorrections] = useState("");
   const [refining, setRefining] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [templates, setTemplates] = useState<{ id: string; name: string; isSystem?: boolean }[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(initialTemplateId || "");
 
+  // Poll session status, transcript, and summary from backend
+  useEffect(() => {
+    const fetchSession = async () => {
+      try {
+        const res = await apiFetch(`/api/sessions/${sessionId}`);
+        if (!res.ok) return;
+        const data: SessionData = await res.json();
+        setStatus(data.status);
+        setTranscript(data.transcript || []);
+        setSummary(data.summary || null);
+        setTranscribing(data.status === "transcribing");
+        setErrorMessage(data.errorMessage || null);
+      } catch {}
+    };
+    fetchSession();
+    const interval = setInterval(fetchSession, 3000);
+    return () => clearInterval(interval);
+  }, [sessionId]);
+
   // Fetch templates when session is ready for transcription
   useEffect(() => {
-    if (status === "stopped") {
+    if (status === "stopped" || status === "transcribing") {
       apiFetch("/api/templates")
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {
             setTemplates(data);
-            // Auto-select the system template as default
             const system = data.find((t: any) => t.isSystem);
             if (system && !selectedTemplateId) {
               setSelectedTemplateId(system.id);
@@ -73,40 +94,6 @@ export function LiveTranscript({ sessionId, status, onStop, initialTemplateId }:
         .catch(() => {});
     }
   }, [status]);
-
-  useEffect(() => {
-    if (status === "stopped" || status === "transcribing") {
-      fetchTranscript();
-    }
-  }, [status]);
-
-  useEffect(() => {
-    if (!transcribing) return;
-    const interval = setInterval(async () => {
-      const res = await apiFetch(`/api/sessions/${sessionId}`);
-      const data: SessionData = await res.json();
-      if (data.status === "stopped") {
-        setTranscribing(false);
-        setTranscript(data.transcript || []);
-        setSummary(data.summary || null);
-      } else if (data.status === "error") {
-        setTranscribing(false);
-      }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [transcribing, sessionId]);
-
-  const fetchTranscript = async () => {
-    try {
-      const res = await apiFetch(`/api/sessions/${sessionId}`);
-      const data: SessionData = await res.json();
-      setTranscript(data.transcript || []);
-      setSummary(data.summary || null);
-      if (data.status === "transcribing") {
-        setTranscribing(true);
-      }
-    } catch {}
-  };
 
   const handleStop = async () => {
     try {
@@ -170,6 +157,7 @@ export function LiveTranscript({ sessionId, status, onStop, initialTemplateId }:
 
   const isRecording = status === "recording" || status === "starting";
   const isStopped = status === "stopped";
+  const isError = status === "error";
 
   return (
     <div className="max-w-3xl mx-auto p-8 space-y-6">
@@ -187,6 +175,8 @@ export function LiveTranscript({ sessionId, status, onStop, initialTemplateId }:
               <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse-slow" />
               Transcribing
             </Badge>
+          ) : isError ? (
+            <Badge variant="destructive">Error</Badge>
           ) : isStopped ? (
             <Badge variant="secondary">Complete</Badge>
           ) : (
@@ -233,6 +223,23 @@ export function LiveTranscript({ sessionId, status, onStop, initialTemplateId }:
       )}
 
       {activeTab === "session" && <>
+      {/* Error State */}
+      {isError && (
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">Session failed</p>
+                <p className="text-sm text-muted-foreground">
+                  {errorMessage || "An unknown error occurred"}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Recording Monitor */}
       {isRecording && (
         <Card>
