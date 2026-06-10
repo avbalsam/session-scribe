@@ -50,7 +50,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const [corrections, setCorrections] = useState("");
   const [refining, setRefining] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
+  const [templates, setTemplates] = useState<{ id: string; name: string; isSystem?: boolean }[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
 
   // Fetch templates when session is ready for transcription
@@ -58,7 +58,16 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
     if (status === "stopped") {
       apiFetch("/api/templates")
         .then((res) => res.json())
-        .then((data) => { if (Array.isArray(data)) setTemplates(data); })
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setTemplates(data);
+            // Auto-select the system template as default
+            const system = data.find((t: any) => t.isSystem);
+            if (system && !selectedTemplateId) {
+              setSelectedTemplateId(system.id);
+            }
+          }
+        })
         .catch(() => {});
     }
   }, [status]);
@@ -273,9 +282,9 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
                       onChange={(e) => setSelectedTemplateId(e.target.value)}
                       className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <option value="">Default (DIR/Floortime)</option>
+                      <option value="">Select a template...</option>
                       {templates.map((t) => (
-                        <option key={t.id} value={t.id}>{t.name}</option>
+                        <option key={t.id} value={t.id}>{t.isSystem ? `${t.name} (Built-in)` : t.name}</option>
                       ))}
                     </select>
                   </div>

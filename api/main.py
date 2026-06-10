@@ -515,7 +515,9 @@ DEFAULT_SYSTEM_PROMPT = (
 
 async def generate_session_summary(transcript_text: str, api_key: str, system_prompt: str | None = None) -> Optional[str]:
     """Generate a session note from a therapy session transcript using the given prompt."""
-    prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
+    if not system_prompt:
+        return None
+    prompt = system_prompt
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
@@ -673,7 +675,6 @@ async def create_template(body: dict, user: User = Depends(get_current_user)):
 
     name = body.get("name", "").strip()
     prompt_text = body.get("promptText", "").strip()
-    is_public = body.get("isPublic", False)
 
     if not name or not prompt_text:
         return JSONResponse({"error": "name and promptText are required"}, status_code=400)
@@ -682,11 +683,11 @@ async def create_template(body: dict, user: User = Depends(get_current_user)):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "INSERT INTO templates (id, user_id, name, prompt_text, is_public) VALUES (%s, %s, %s, %s, %s)",
-                (template_id, user.id, name, prompt_text, is_public),
+                "INSERT INTO templates (id, user_id, name, prompt_text, is_public) VALUES (%s, %s, %s, %s, FALSE)",
+                (template_id, user.id, name, prompt_text),
             )
 
-    return {"id": template_id, "name": name, "promptText": prompt_text, "isPublic": is_public, "isOwner": True}
+    return {"id": template_id, "name": name, "promptText": prompt_text, "isOwner": True}
 
 
 @app.get("/api/templates")
@@ -698,15 +699,11 @@ async def list_templates(user: User = Depends(get_current_user)):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                """SELECT t.id, t.user_id, t.name, t.prompt_text, t.is_public, t.created_at, t.updated_at
+                """SELECT t.id, t.user_id, t.name, t.prompt_text, t.created_at, t.updated_at
                    FROM templates t
-                   WHERE t.user_id = %s
-                   UNION
-                   SELECT t.id, t.user_id, t.name, t.prompt_text, t.is_public, t.created_at, t.updated_at
-                   FROM templates t
-                   JOIN user_template_library utl ON t.id = utl.template_id
-                   WHERE utl.user_id = %s""",
-                (user.id, user.id),
+                   WHERE t.user_id = %s OR t.user_id IS NULL
+                   ORDER BY t.user_id IS NOT NULL, t.created_at DESC""",
+                (user.id,),
             )
             rows = await cur.fetchall()
 
@@ -716,54 +713,15 @@ async def list_templates(user: User = Depends(get_current_user)):
             "userId": r[1],
             "name": r[2],
             "promptText": r[3],
-            "isPublic": bool(r[4]),
-            "createdAt": r[5].isoformat() if r[5] else None,
-            "updatedAt": r[6].isoformat() if r[6] else None,
-            "isOwner": r[1] == user.id,
-        }
-        for r in rows
-    ]
-
-
-@app.get("/api/templates/public")
-async def list_public_templates(user: User = Depends(get_current_user), search: str = Query(default="")):
-    pool = get_pool()
-    if not pool:
-        return JSONResponse({"error": "Database not available"}, status_code=503)
-
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            if search.strip():
-                await cur.execute(
-                    """SELECT t.id, t.user_id, t.name, t.prompt_text, t.created_at,
-                              (SELECT COUNT(*) FROM user_template_library utl WHERE utl.template_id = t.id AND utl.user_id = %s) as imported
-                       FROM templates t
-                       WHERE t.is_public = TRUE AND t.user_id != %s AND t.name LIKE %s
-                       ORDER BY t.created_at DESC""",
-                    (user.id, user.id, f"%{search.strip()}%"),
-                )
-            else:
-                await cur.execute(
-                    """SELECT t.id, t.user_id, t.name, t.prompt_text, t.created_at,
-                              (SELECT COUNT(*) FROM user_template_library utl WHERE utl.template_id = t.id AND utl.user_id = %s) as imported
-                       FROM templates t
-                       WHERE t.is_public = TRUE AND t.user_id != %s
-                       ORDER BY t.created_at DESC""",
-                    (user.id, user.id),
-                )
-            rows = await cur.fetchall()
-
-    return [
-        {
-            "id": r[0],
-            "userId": r[1],
-            "name": r[2],
-            "promptText": r[3],
             "createdAt": r[4].isoformat() if r[4] else None,
-            "imported": r[5] > 0,
+            "updatedAt": r[5].isoformat() if r[5] else None,
+            "isOwner": r[1] == user.id,
+            "isSystem": r[1] is None,
         }
         for r in rows
     ]
+
+
 
 
 @app.get("/api/templates/{template_id}")
@@ -814,9 +772,6 @@ async def update_template(template_id: str, body: dict, user: User = Depends(get
             if "promptText" in body:
                 updates.append("prompt_text = %s")
                 params.append(body["promptText"].strip())
-            if "isPublic" in body:
-                updates.append("is_public = %s")
-                params.append(body["isPublic"])
 
             if not updates:
                 return JSONResponse({"error": "No fields to update"}, status_code=400)
@@ -844,40 +799,6 @@ async def delete_template(template_id: str, user: User = Depends(get_current_use
     return {"status": "ok"}
 
 
-@app.post("/api/templates/{template_id}/import")
-async def import_template(template_id: str, user: User = Depends(get_current_user)):
-    pool = get_pool()
-    if not pool:
-        return JSONResponse({"error": "Database not available"}, status_code=503)
-
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT is_public FROM templates WHERE id = %s", (template_id,))
-            row = await cur.fetchone()
-            if not row or not row[0]:
-                return JSONResponse({"error": "Template not found or not public"}, status_code=404)
-            await cur.execute(
-                "INSERT IGNORE INTO user_template_library (user_id, template_id) VALUES (%s, %s)",
-                (user.id, template_id),
-            )
-
-    return {"status": "ok"}
-
-
-@app.delete("/api/templates/{template_id}/import")
-async def remove_template_import(template_id: str, user: User = Depends(get_current_user)):
-    pool = get_pool()
-    if not pool:
-        return JSONResponse({"error": "Database not available"}, status_code=503)
-
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "DELETE FROM user_template_library WHERE user_id = %s AND template_id = %s",
-                (user.id, template_id),
-            )
-
-    return {"status": "ok"}
 
 
 # --- WebSocket Endpoints ---
