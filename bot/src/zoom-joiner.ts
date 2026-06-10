@@ -569,6 +569,12 @@ export async function waitForMeetingEnd(page: Page): Promise<string> {
   console.log("[zoom] Monitoring for meeting end...");
 
   return new Promise((resolve) => {
+    // Detect actual page close via Puppeteer event
+    page.once("close", () => {
+      clearInterval(checkInterval);
+      resolve("page_closed");
+    });
+
     const checkInterval = setInterval(async () => {
       try {
         const meetingEnded = await page.evaluate(() => {
@@ -585,10 +591,11 @@ export async function waitForMeetingEnd(page: Page): Promise<string> {
           clearInterval(checkInterval);
           resolve("meeting_ended");
         }
-      } catch {
-        // Page may have been closed/navigated
-        clearInterval(checkInterval);
-        resolve("page_closed");
+      } catch (e: any) {
+        // Execution context can get destroyed when Zoom switches iframes —
+        // this does NOT mean the page is closed. Only resolve on actual
+        // page close (handled by the 'close' event above).
+        console.warn(`[zoom] Meeting end check failed (will retry): ${e.message}`);
       }
     }, 3000);
   });

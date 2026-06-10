@@ -6,6 +6,8 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Card, CardContent } from "./ui/card";
 import { Textarea } from "./ui/textarea";
+import { cn } from "../lib/utils";
+import { ScreenshotGallery } from "./ScreenshotGallery";
 import {
   Square,
   Copy,
@@ -22,11 +24,6 @@ interface Props {
   sessionId: string;
   status: string;
   onStop: () => void;
-}
-
-interface Screenshot {
-  name: string;
-  url: string;
 }
 
 interface TranscriptSegment {
@@ -46,7 +43,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const { level, duration, connected } = useSessionSocket(
     status === "recording" ? sessionId : null
   );
-  const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
+  const [activeTab, setActiveTab] = useState<"session" | "screenshots">("session");
   const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
   const [summary, setSummary] = useState<string | null>(null);
   const [transcribing, setTranscribing] = useState(false);
@@ -55,19 +52,6 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
   const [copied, setCopied] = useState(false);
   const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
-
-  useEffect(() => {
-    const fetchScreenshots = async () => {
-      try {
-        const res = await apiFetch(`/api/sessions/${sessionId}/screenshots`);
-        const data = await res.json();
-        setScreenshots(data);
-      } catch {}
-    };
-    fetchScreenshots();
-    const interval = setInterval(fetchScreenshots, 3000);
-    return () => clearInterval(interval);
-  }, [sessionId]);
 
   // Fetch templates when session is ready for transcription
   useEffect(() => {
@@ -206,6 +190,35 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
         )}
       </div>
 
+      {/* Tab switcher */}
+      <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+        <button
+          className={cn(
+            "px-4 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer border-none flex items-center gap-1.5",
+            activeTab === "session" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground bg-transparent"
+          )}
+          onClick={() => setActiveTab("session")}
+        >
+          <FileText className="h-3.5 w-3.5" />
+          Session
+        </button>
+        <button
+          className={cn(
+            "px-4 py-1.5 text-sm font-medium rounded-md transition-all cursor-pointer border-none flex items-center gap-1.5",
+            activeTab === "screenshots" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground bg-transparent"
+          )}
+          onClick={() => setActiveTab("screenshots")}
+        >
+          <Image className="h-3.5 w-3.5" />
+          Screenshots
+        </button>
+      </div>
+
+      {activeTab === "screenshots" && (
+        <ScreenshotGallery sessionId={sessionId} isLive={isRecording} />
+      )}
+
+      {activeTab === "session" && <>
       {/* Recording Monitor */}
       {isRecording && (
         <Card>
@@ -360,30 +373,7 @@ export function LiveTranscript({ sessionId, status, onStop }: Props) {
         </Card>
       )}
 
-      {/* Screenshots */}
-      {screenshots.length > 0 && (
-        <Card>
-          <CardContent className="p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <Image className="h-4 w-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold text-foreground">Bot Screenshots</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              {screenshots.map((s) => (
-                <div key={s.name} className="group">
-                  <img
-                    src={`${API_BASE_URL}${s.url}`}
-                    alt={s.name}
-                    loading="lazy"
-                    className="rounded-lg border border-border w-full object-cover transition-all group-hover:border-primary/50 group-hover:shadow-md"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1.5 text-center">{s.name}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      </>}
     </div>
   );
 }

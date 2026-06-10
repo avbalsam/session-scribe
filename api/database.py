@@ -32,12 +32,25 @@ CREATE TABLE IF NOT EXISTS user_template_library (
 )
 """
 
+SCREENSHOTS_TABLE = """
+CREATE TABLE IF NOT EXISTS screenshots (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  session_id VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  image_data LONGBLOB NOT NULL,
+  content_type VARCHAR(50) NOT NULL DEFAULT 'image/png',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_session_id (session_id),
+  INDEX idx_session_created (session_id, created_at)
+)
+"""
+
 
 async def init_db():
     global _pool
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
-        logger.warning("DATABASE_URL not set — template features disabled")
+        logger.warning("DATABASE_URL not set -- database features disabled")
         return
 
     parsed = urlparse(database_url)
@@ -56,8 +69,9 @@ async def init_db():
         async with conn.cursor() as cur:
             await cur.execute(TEMPLATES_TABLE)
             await cur.execute(USER_TEMPLATE_LIBRARY_TABLE)
+            await cur.execute(SCREENSHOTS_TABLE)
 
-    logger.info("Database initialized — template tables ready")
+    logger.info("Database initialized -- tables ready")
 
 
 async def close_db():

@@ -5,10 +5,12 @@ import tempfile
 import uuid
 from typing import Optional
 
+import math
+
 import httpx
 from fastapi import FastAPI, WebSocket, BackgroundTasks, UploadFile, File, Form, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 
 from fastapi import Request
 from fastapi.responses import StreamingResponse
@@ -18,7 +20,6 @@ from api.audio_handler import AudioHandler
 from api.auth import User, get_current_user, AUTH_SERVICE_URL
 from api.database import init_db, close_db, get_pool
 
-SCREENSHOTS_DIR = os.environ.get("SCREENSHOTS_DIR", "./screenshots")
 AUDIO_SAVE_DIR = os.environ.get("AUDIO_SAVE_DIR", "./audio")
 
 app = FastAPI(title="Session Scribe API")
@@ -233,8 +234,8 @@ async def get_session(session_id: str, user: User = Depends(get_current_user)):
 
 
 @app.post("/api/sessions/{session_id}/status")
-async def update_session_status(session_id: str, body: dict, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.id)
+async def update_session_status(session_id: str, body: dict):
+    session = store.get(session_id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     status = body.get("status", "error")
@@ -560,46 +561,105 @@ async def get_session_audio(session_id: str, user: User = Depends(get_current_us
 
 
 @app.post("/api/sessions/{session_id}/screenshots")
-async def upload_screenshot(session_id: str, body: dict, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.id)
+async def upload_screenshot(session_id: str, body: dict):
+    session = store.get(session_id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
 
     name = body.get("name", "unknown")
     data = body.get("data", "")
 
-    # Save screenshot to disk
-    session_dir = os.path.join(SCREENSHOTS_DIR, session_id)
-    os.makedirs(session_dir, exist_ok=True)
-    file_path = os.path.join(session_dir, f"{name}.png")
+    pool = get_pool()
+    if not pool:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
 
-    with open(file_path, "wb") as f:
-        f.write(base64.b64decode(data))
+    image_bytes = base64.b64decode(data)
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO screenshots (session_id, name, image_data, content_type) VALUES (%s, %s, %s, %s)",
+                (session_id, name, image_bytes, "image/png"),
+            )
 
     return {"status": "ok", "name": name}
 
 
 @app.get("/api/sessions/{session_id}/screenshots")
-async def list_screenshots(session_id: str, user: User = Depends(get_current_user)):
+async def list_screenshots(
+    session_id: str,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    user: User = Depends(get_current_user),
+):
     session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
-    session_dir = os.path.join(SCREENSHOTS_DIR, session_id)
-    if not os.path.exists(session_dir):
-        return []
-    files = sorted(f for f in os.listdir(session_dir) if f.endswith(".png"))
-    return [{"name": f.replace(".png", ""), "url": f"/api/sessions/{session_id}/screenshots/{f}"} for f in files]
+
+    pool = get_pool()
+    if not pool:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+
+    offset = (page - 1) * limit
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT COUNT(*) FROM screenshots WHERE session_id = %s",
+                (session_id,),
+            )
+            (total,) = await cur.fetchone()
+
+            await cur.execute(
+                "SELECT id, name, content_type, created_at FROM screenshots WHERE session_id = %s ORDER BY created_at ASC LIMIT %s OFFSET %s",
+                (session_id, limit, offset),
+            )
+            rows = await cur.fetchall()
+
+    screenshots = [
+        {
+            "id": row[0],
+            "name": row[1],
+            "url": f"/api/sessions/{session_id}/screenshots/{row[0]}",
+            "contentType": row[2],
+            "createdAt": row[3].isoformat() if row[3] else None,
+        }
+        for row in rows
+    ]
+
+    return {
+        "screenshots": screenshots,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "totalPages": math.ceil(total / limit) if total > 0 else 0,
+    }
 
 
-@app.get("/api/sessions/{session_id}/screenshots/{filename}")
-async def get_screenshot(session_id: str, filename: str, user: User = Depends(get_current_user)):
+@app.get("/api/sessions/{session_id}/screenshots/{screenshot_id}")
+async def get_screenshot(session_id: str, screenshot_id: int, user: User = Depends(get_current_user)):
     session = store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
-    file_path = os.path.join(SCREENSHOTS_DIR, session_id, filename)
-    if not os.path.exists(file_path):
+
+    pool = get_pool()
+    if not pool:
+        return JSONResponse({"error": "Database not available"}, status_code=503)
+
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT image_data, content_type FROM screenshots WHERE id = %s AND session_id = %s",
+                (screenshot_id, session_id),
+            )
+            row = await cur.fetchone()
+
+    if not row:
         return JSONResponse({"error": "Screenshot not found"}, status_code=404)
-    return FileResponse(file_path, media_type="image/png")
+
+    return Response(
+        content=row[0],
+        media_type=row[1],
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 # --- Template Endpoints ---
