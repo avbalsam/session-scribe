@@ -7,4 +7,5 @@ aiofiles
 python-dotenv
 python-multipart
 aiomysql
+cryptography
 requests
