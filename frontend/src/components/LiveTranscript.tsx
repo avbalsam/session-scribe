@@ -23,7 +23,6 @@ import {
 
 interface Props {
   sessionId: string;
-  status: string;
   onStop: () => void;
   initialTemplateId?: string;
 }
@@ -41,7 +40,8 @@ interface SessionData {
   status: string;
 }
 
-export function LiveTranscript({ sessionId, status, onStop, initialTemplateId }: Props) {
+export function LiveTranscript({ sessionId, onStop, initialTemplateId }: Props) {
+  const [status, setStatus] = useState<string>("starting");
   const { level, duration, connected } = useSessionSocket(
     status === "recording" ? sessionId : null
   );
@@ -55,15 +55,32 @@ export function LiveTranscript({ sessionId, status, onStop, initialTemplateId }:
   const [templates, setTemplates] = useState<{ id: string; name: string; isSystem?: boolean }[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(initialTemplateId || "");
 
+  // Poll session status, transcript, and summary from backend
+  useEffect(() => {
+    const fetchSession = async () => {
+      try {
+        const res = await apiFetch(`/api/sessions/${sessionId}`);
+        if (!res.ok) return;
+        const data: SessionData = await res.json();
+        setStatus(data.status);
+        setTranscript(data.transcript || []);
+        setSummary(data.summary || null);
+        setTranscribing(data.status === "transcribing");
+      } catch {}
+    };
+    fetchSession();
+    const interval = setInterval(fetchSession, 3000);
+    return () => clearInterval(interval);
+  }, [sessionId]);
+
   // Fetch templates when session is ready for transcription
   useEffect(() => {
-    if (status === "stopped") {
+    if (status === "stopped" || status === "transcribing") {
       apiFetch("/api/templates")
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {
             setTemplates(data);
-            // Auto-select the system template as default
             const system = data.find((t: any) => t.isSystem);
             if (system && !selectedTemplateId) {
               setSelectedTemplateId(system.id);
@@ -73,40 +90,6 @@ export function LiveTranscript({ sessionId, status, onStop, initialTemplateId }:
         .catch(() => {});
     }
   }, [status]);
-
-  useEffect(() => {
-    if (status === "stopped" || status === "transcribing") {
-      fetchTranscript();
-    }
-  }, [status]);
-
-  useEffect(() => {
-    if (!transcribing) return;
-    const interval = setInterval(async () => {
-      const res = await apiFetch(`/api/sessions/${sessionId}`);
-      const data: SessionData = await res.json();
-      if (data.status === "stopped") {
-        setTranscribing(false);
-        setTranscript(data.transcript || []);
-        setSummary(data.summary || null);
-      } else if (data.status === "error") {
-        setTranscribing(false);
-      }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [transcribing, sessionId]);
-
-  const fetchTranscript = async () => {
-    try {
-      const res = await apiFetch(`/api/sessions/${sessionId}`);
-      const data: SessionData = await res.json();
-      setTranscript(data.transcript || []);
-      setSummary(data.summary || null);
-      if (data.status === "transcribing") {
-        setTranscribing(true);
-      }
-    } catch {}
-  };
 
   const handleStop = async () => {
     try {

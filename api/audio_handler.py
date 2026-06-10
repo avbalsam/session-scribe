@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from api.sessions import SessionStore, TranscriptSegment
+from api.sessions import SessionStore, TranscriptSegment, MAX_SESSION_DURATION
 from api.transcriber import Transcriber, NoOpTranscriber
 from api.auth import get_user_from_cookie
 
@@ -32,20 +32,20 @@ class AudioHandler:
         """Receive audio chunks from the bot and process them."""
         await websocket.accept()
 
-        session = self.store.get(session_id)
+        session = await self.store.get(session_id)
         if not session:
             await websocket.close(code=4004, reason="Session not found")
             return
 
         # Update session status
-        self.store.update_status(session_id, "recording")
+        await self.store.update_status(session_id, "recording")
 
         # Prepare audio file
         os.makedirs(AUDIO_DIR, exist_ok=True)
         audio_path = os.path.join(
             AUDIO_DIR, f"{session_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
         )
-        session.audio_file_path = audio_path
+        await self.store.set_audio_path(session_id, audio_path)
 
         # Open WAV file for writing
         wav_file = wave.open(audio_path, "wb")
@@ -60,12 +60,16 @@ class AudioHandler:
             await self.transcriber.start()
 
             while True:
+                # Enforce session timeout
+                duration_s = total_bytes / (SAMPLE_RATE * SAMPLE_WIDTH)
+                if duration_s >= MAX_SESSION_DURATION:
+                    print(f"[audio] Session {session_id} hit {MAX_SESSION_DURATION}s limit, stopping")
+                    break
+
                 data = await websocket.receive()
 
                 # Handle text messages (control signals)
                 if "text" in data:
-                    import json
-
                     msg = json.loads(data["text"])
                     if msg.get("type") == "end":
                         print(f"[audio] Session {session_id} ended by bot")
@@ -89,7 +93,6 @@ class AudioHandler:
                     # Pass to transcriber
                     segment = await self.transcriber.transcribe_chunk(audio_bytes)
                     if segment:
-                        session.transcript.append(segment)
                         await self._broadcast_segment(session_id, segment)
 
                     # Log progress periodically
@@ -104,17 +107,20 @@ class AudioHandler:
             print(f"[audio] Bot disconnected for session {session_id}")
         except Exception as e:
             print(f"[audio] Error in session {session_id}: {e}")
-            self.store.update_status(session_id, "error", str(e))
+            await self.store.update_status(session_id, "error", str(e))
         finally:
             wav_file.close()
             await self.transcriber.stop()
-            self.store.update_status(session_id, "stopped")
+            await self.store.update_status(session_id, "stopped")
             duration = total_bytes / (SAMPLE_RATE * SAMPLE_WIDTH)
             print(
                 f"[audio] Session {session_id} complete: "
                 f"{chunk_count} chunks, {total_bytes / 1024 / 1024:.2f} MB, "
                 f"~{duration:.1f}s of audio saved to {audio_path}"
             )
+            # Auto-trigger transcription
+            from api.main import run_whisper_transcription
+            asyncio.create_task(run_whisper_transcription(session_id))
 
     async def handle_transcript_ws(self, websocket: WebSocket, session_id: str):
         """Frontend clients connect here to receive live transcript updates."""
@@ -126,7 +132,7 @@ class AudioHandler:
             await websocket.close(code=4001, reason="Not authenticated")
             return
 
-        session = self.store.get(session_id)
+        session = await self.store.get(session_id)
         if not session:
             await websocket.close(code=4004, reason="Session not found")
             return

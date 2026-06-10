@@ -108,7 +108,8 @@ async def create_session(body: dict, user: User = Depends(get_current_user)):
     if not meeting_id and not zoom_link and source != "system-audio":
         return JSONResponse({"error": "meetingId, zoomLink, or source is required"}, status_code=400)
 
-    session = store.create(meeting_id or zoom_link or source, passcode, bot_name, owner_id=user.id)
+    template_id = body.get("templateId")
+    session = await store.create(meeting_id or zoom_link or source, passcode, bot_name, owner_id=user.id, template_id=template_id)
 
     # Trigger the bot service to join the meeting (skip for system-audio sessions)
     if source != "system-audio":
@@ -126,11 +127,11 @@ async def create_session(body: dict, user: User = Depends(get_current_user)):
                     timeout=10.0,
                 )
                 if resp.status_code != 200:
-                    store.update_status(
+                    await store.update_status(
                         session.id, "error", f"Bot service error: {resp.text}"
                     )
         except httpx.ConnectError:
-            store.update_status(
+            await store.update_status(
                 session.id,
                 "error",
                 "Could not connect to bot service. Is it running?",
@@ -165,7 +166,7 @@ async def create_session_from_upload(
     """Create a session from an uploaded video/audio file."""
     os.makedirs(AUDIO_SAVE_DIR, exist_ok=True)
 
-    session = store.create("uploaded-file", None, botName, owner_id=user.id)
+    session = await store.create("uploaded-file", None, botName, owner_id=user.id)
 
     # Save uploaded file to a temp location
     suffix = os.path.splitext(file.filename or "upload")[1] or ".bin"
@@ -179,21 +180,21 @@ async def create_session_from_upload(
         await extract_audio_to_wav(tmp_path, wav_path)
     except RuntimeError as e:
         os.unlink(tmp_path)
-        store.update_status(session.id, "error", str(e))
+        await store.update_status(session.id, "error", str(e))
         return JSONResponse({"error": f"Audio extraction failed: {e}"}, status_code=400)
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
-    session.audio_file_path = wav_path
-    store.update_status(session.id, "stopped")
+    await store.set_audio_path(session.id, wav_path)
+    await store.update_status(session.id, "stopped")
     return session.to_dict()
 
 
 @app.post("/api/sessions/{session_id}/upload-audio")
 async def upload_session_audio(session_id: str, file: UploadFile = File(...), user: User = Depends(get_current_user)):
     """Upload a recorded audio blob for an existing session (e.g. system audio recording)."""
-    session = store.get_owned(session_id, user.id)
+    session = await store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
 
@@ -209,25 +210,27 @@ async def upload_session_audio(session_id: str, file: UploadFile = File(...), us
         await extract_audio_to_wav(tmp_path, wav_path)
     except RuntimeError as e:
         os.unlink(tmp_path)
-        store.update_status(session_id, "error", str(e))
+        await store.update_status(session_id, "error", str(e))
         return JSONResponse({"error": f"Audio extraction failed: {e}"}, status_code=400)
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
-    session.audio_file_path = wav_path
-    store.update_status(session_id, "stopped")
+    await store.set_audio_path(session_id, wav_path)
+    await store.update_status(session_id, "stopped")
+    session = await store.get(session_id)
     return session.to_dict()
 
 
 @app.get("/api/sessions")
 async def list_sessions(user: User = Depends(get_current_user)):
-    return [s.to_dict() for s in store.list_by_owner(user.id)]
+    sessions = await store.list_by_owner(user.id)
+    return [s.to_dict() for s in sessions]
 
 
 @app.get("/api/sessions/{session_id}")
 async def get_session(session_id: str, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.id)
+    session = await store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     return session.to_dict()
@@ -235,18 +238,18 @@ async def get_session(session_id: str, user: User = Depends(get_current_user)):
 
 @app.post("/api/sessions/{session_id}/status")
 async def update_session_status(session_id: str, body: dict):
-    session = store.get(session_id)
+    session = await store.get(session_id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     status = body.get("status", "error")
     error = body.get("error")
-    store.update_status(session_id, status, error)
+    await store.update_status(session_id, status, error)
     return {"status": "ok"}
 
 
 @app.post("/api/sessions/{session_id}/stop")
 async def stop_session(session_id: str, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.id)
+    session = await store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
 
@@ -261,13 +264,14 @@ async def stop_session(session_id: str, user: User = Depends(get_current_user)):
     except httpx.ConnectError:
         pass  # Bot may have already stopped
 
-    store.update_status(session_id, "stopped")
-    return store.get(session_id).to_dict()
+    await store.update_status(session_id, "stopped")
+    session = await store.get(session_id)
+    return session.to_dict()
 
 
 @app.post("/api/sessions/{session_id}/transcribe")
 async def transcribe_session(session_id: str, request: Request, background_tasks: BackgroundTasks, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.id)
+    session = await store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     if not session.audio_file_path or not os.path.exists(session.audio_file_path):
@@ -275,37 +279,23 @@ async def transcribe_session(session_id: str, request: Request, background_tasks
     if session.status == "transcribing":
         return JSONResponse({"error": "Transcription already in progress"}, status_code=409)
 
-    # Load custom template prompt if provided
-    system_prompt = None
+    # Optionally override the template for this transcription
     try:
         body = await request.json()
         template_id = body.get("templateId")
         if template_id:
-            pool = get_pool()
-            if pool:
-                async with pool.acquire() as conn:
-                    async with conn.cursor() as cur:
-                        await cur.execute(
-                            """SELECT t.prompt_text FROM templates t
-                               WHERE t.id = %s AND (t.user_id = %s OR t.user_id IS NULL)""",
-                            (template_id, user.id),
-                        )
-                        row = await cur.fetchone()
-                        if row:
-                            system_prompt = row[0]
-                        else:
-                            return JSONResponse({"error": "Template not found"}, status_code=404)
+            await store.update_template(session_id, template_id)
     except Exception:
-        pass  # No body or invalid JSON — use default prompt
+        pass  # No body or invalid JSON — use existing session template
 
-    store.update_status(session_id, "transcribing")
-    background_tasks.add_task(run_whisper_transcription, session_id, system_prompt)
+    await store.update_status(session_id, "transcribing")
+    background_tasks.add_task(run_whisper_transcription, session_id)
     return {"status": "transcribing"}
 
 
 @app.post("/api/sessions/{session_id}/refine-summary")
 async def refine_session_summary(session_id: str, body: dict, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.id)
+    session = await store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     if not session.summary:
@@ -379,26 +369,53 @@ async def refine_session_summary(session_id: str, body: dict, user: User = Depen
             )
 
         result = response.json()
-        session.summary = result["choices"][0]["message"]["content"]
-        return {"summary": session.summary}
+        new_summary = result["choices"][0]["message"]["content"]
+        await store.set_summary(session_id, new_summary)
+        return {"summary": new_summary}
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-async def run_whisper_transcription(session_id: str, system_prompt: str | None = None):
-    """Send audio to OpenAI Whisper API and store the transcript."""
-    session = store.get(session_id)
+async def run_whisper_transcription(session_id: str):
+    """Send audio to OpenAI Whisper API, generate summary, and persist results.
+
+    Reads the template_id from the session's DB row to determine which prompt to use.
+    Called both automatically (when recording stops) and manually (via /transcribe endpoint).
+    """
+    session = await store.get(session_id)
     if not session:
         return
 
     openai_api_key = os.environ.get("OPENAI_API_KEY")
     if not openai_api_key:
-        store.update_status(session_id, "error", "OPENAI_API_KEY not configured")
+        await store.update_status(session_id, "error", "OPENAI_API_KEY not configured")
+        return
+
+    if not session.audio_file_path or not os.path.exists(session.audio_file_path):
+        await store.update_status(session_id, "error", "Audio file not found")
         return
 
     try:
+        await store.update_status(session_id, "transcribing")
         print(f"[transcribe] Starting transcription for session {session_id}")
+
+        # Resolve template prompt
+        system_prompt = None
+        if session.template_id:
+            pool = get_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute(
+                            "SELECT prompt_text FROM templates WHERE id = %s",
+                            (session.template_id,),
+                        )
+                        row = await cur.fetchone()
+                        if row:
+                            system_prompt = row[0]
+        if not system_prompt:
+            system_prompt = DEFAULT_SYSTEM_PROMPT
 
         # Whisper API has a 25MB file limit. Send the file directly.
         async with httpx.AsyncClient(timeout=300.0) as client:
@@ -417,14 +434,14 @@ async def run_whisper_transcription(session_id: str, system_prompt: str | None =
         if response.status_code != 200:
             error_msg = response.text[:200]
             print(f"[transcribe] OpenAI error: {error_msg}")
-            store.update_status(session_id, "error", f"Whisper API error: {error_msg}")
+            await store.update_status(session_id, "error", f"Whisper API error: {error_msg}")
             return
 
         result = response.json()
         segments = result.get("segments", [])
 
-        # Convert to our TranscriptSegment format
-        session.transcript = [
+        # Convert to our TranscriptSegment format and persist
+        transcript = [
             TranscriptSegment(
                 text=seg.get("text", "").strip(),
                 start_time=seg.get("start"),
@@ -433,22 +450,26 @@ async def run_whisper_transcription(session_id: str, system_prompt: str | None =
             for seg in segments
             if seg.get("text", "").strip()
         ]
+        await store.set_transcript(session_id, transcript)
 
-        print(f"[transcribe] Got {len(session.transcript)} segments, generating summary...")
+        print(f"[transcribe] Got {len(transcript)} segments, generating summary...")
 
-        # Generate summary using a low-cost model
-        full_text = " ".join(seg.text for seg in session.transcript)
+        # Generate summary
+        full_text = " ".join(seg.text for seg in transcript)
         if full_text.strip():
-            session.summary = await generate_session_summary(full_text, openai_api_key, system_prompt)
+            summary = await generate_session_summary(full_text, openai_api_key, system_prompt)
         else:
-            session.summary = "No speech detected in the recording. The audio may be silent, corrupted, or contain no recognizable speech."
+            summary = "No speech detected in the recording."
 
-        store.update_status(session_id, "stopped")
-        print(f"[transcribe] Done — {len(session.transcript)} segments + summary for session {session_id}")
+        if summary:
+            await store.set_summary(session_id, summary)
+
+        await store.update_status(session_id, "stopped")
+        print(f"[transcribe] Done — {len(transcript)} segments + summary for session {session_id}")
 
     except Exception as e:
         print(f"[transcribe] Error: {e}")
-        store.update_status(session_id, "error", f"Transcription failed: {str(e)}")
+        await store.update_status(session_id, "error", f"Transcription failed: {str(e)}")
 
 
 DEFAULT_SYSTEM_PROMPT = (
@@ -571,7 +592,7 @@ async def generate_session_summary(transcript_text: str, api_key: str, system_pr
 
 @app.get("/api/sessions/{session_id}/audio")
 async def get_session_audio(session_id: str, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.id)
+    session = await store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     if not session.audio_file_path or not os.path.exists(session.audio_file_path):
@@ -581,7 +602,7 @@ async def get_session_audio(session_id: str, user: User = Depends(get_current_us
 
 @app.post("/api/sessions/{session_id}/screenshots")
 async def upload_screenshot(session_id: str, body: dict):
-    session = store.get(session_id)
+    session = await store.get(session_id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
 
@@ -610,7 +631,7 @@ async def list_screenshots(
     limit: int = Query(default=20, ge=1, le=100),
     user: User = Depends(get_current_user),
 ):
-    session = store.get_owned(session_id, user.id)
+    session = await store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
 
@@ -655,7 +676,7 @@ async def list_screenshots(
 
 @app.get("/api/sessions/{session_id}/screenshots/{screenshot_id}")
 async def get_screenshot(session_id: str, screenshot_id: int, user: User = Depends(get_current_user)):
-    session = store.get_owned(session_id, user.id)
+    session = await store.get_owned(session_id, user.id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
 
