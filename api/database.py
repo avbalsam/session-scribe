@@ -73,6 +73,8 @@ async def init_db():
             await cur.execute(TEMPLATES_TABLE)
             await cur.execute(USER_TEMPLATE_LIBRARY_TABLE)
             await cur.execute(SCREENSHOTS_TABLE)
+            # Ensure user_id is nullable (needed for system templates)
+            await cur.execute("ALTER TABLE templates MODIFY COLUMN user_id VARCHAR(255) NULL")
 
     await _seed_system_templates()
     logger.info("Database initialized -- tables ready")
