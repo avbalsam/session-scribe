@@ -104,21 +104,28 @@ class AudioHandler:
                         )
 
         except WebSocketDisconnect:
+            # Bot disconnected — normal end of session
             print(f"[audio] Bot disconnected for session {session_id}")
+            should_transcribe = True
         except Exception as e:
             print(f"[audio] Error in session {session_id}: {e}")
             await self.store.update_status(session_id, "error", str(e))
-        finally:
-            wav_file.close()
-            await self.transcriber.stop()
-            await self.store.update_status(session_id, "stopped")
-            duration = total_bytes / (SAMPLE_RATE * SAMPLE_WIDTH)
-            print(
-                f"[audio] Session {session_id} complete: "
-                f"{chunk_count} chunks, {total_bytes / 1024 / 1024:.2f} MB, "
-                f"~{duration:.1f}s of audio saved to {audio_path}"
-            )
-            # Auto-trigger transcription
+            should_transcribe = False
+        else:
+            # Loop exited normally (bot sent "end" or timeout)
+            should_transcribe = True
+
+        wav_file.close()
+        await self.transcriber.stop()
+        duration = total_bytes / (SAMPLE_RATE * SAMPLE_WIDTH)
+        print(
+            f"[audio] Session {session_id} complete: "
+            f"{chunk_count} chunks, {total_bytes / 1024 / 1024:.2f} MB, "
+            f"~{duration:.1f}s of audio saved to {audio_path}"
+        )
+        await self.store.update_status(session_id, "stopped")
+        # Auto-trigger transcription if session ended normally and has audio
+        if should_transcribe and total_bytes > 0:
             from api.main import run_whisper_transcription
             asyncio.create_task(run_whisper_transcription(session_id))
 

@@ -19,6 +19,7 @@ import {
   Clock,
   FileText,
   Image,
+  AlertCircle,
 } from "lucide-react";
 
 interface Props {
@@ -38,6 +39,7 @@ interface SessionData {
   transcript: TranscriptSegment[];
   summary: string | null;
   status: string;
+  errorMessage: string | null;
 }
 
 export function LiveTranscript({ sessionId, onStop, initialTemplateId }: Props) {
@@ -52,6 +54,7 @@ export function LiveTranscript({ sessionId, onStop, initialTemplateId }: Props) 
   const [corrections, setCorrections] = useState("");
   const [refining, setRefining] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [templates, setTemplates] = useState<{ id: string; name: string; isSystem?: boolean }[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(initialTemplateId || "");
 
@@ -66,6 +69,7 @@ export function LiveTranscript({ sessionId, onStop, initialTemplateId }: Props) 
         setTranscript(data.transcript || []);
         setSummary(data.summary || null);
         setTranscribing(data.status === "transcribing");
+        setErrorMessage(data.errorMessage || null);
       } catch {}
     };
     fetchSession();
@@ -153,6 +157,7 @@ export function LiveTranscript({ sessionId, onStop, initialTemplateId }: Props) 
 
   const isRecording = status === "recording" || status === "starting";
   const isStopped = status === "stopped";
+  const isError = status === "error";
 
   return (
     <div className="max-w-3xl mx-auto p-8 space-y-6">
@@ -170,6 +175,8 @@ export function LiveTranscript({ sessionId, onStop, initialTemplateId }: Props) 
               <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse-slow" />
               Transcribing
             </Badge>
+          ) : isError ? (
+            <Badge variant="destructive">Error</Badge>
           ) : isStopped ? (
             <Badge variant="secondary">Complete</Badge>
           ) : (
@@ -216,6 +223,23 @@ export function LiveTranscript({ sessionId, onStop, initialTemplateId }: Props) 
       )}
 
       {activeTab === "session" && <>
+      {/* Error State */}
+      {isError && (
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">Session failed</p>
+                <p className="text-sm text-muted-foreground">
+                  {errorMessage || "An unknown error occurred"}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Recording Monitor */}
       {isRecording && (
         <Card>
