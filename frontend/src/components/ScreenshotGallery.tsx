@@ -44,8 +44,11 @@ export function ScreenshotGallery({ sessionId, isLive }: Props) {
         const res = await apiFetch(
           `/api/sessions/${sessionId}/screenshots?page=${p}&limit=${PAGE_SIZE}`
         );
-        const json: ScreenshotResponse = await res.json();
-        setData(json);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json.screenshots) {
+          setData(json as ScreenshotResponse);
+        }
       } catch {}
     },
     [sessionId]
